@@ -5,7 +5,7 @@
 use anyhow::{Context, Result, bail};
 
 use crate::config::Config;
-use crate::consts::{HTTP_PORT, HTTPS_PORT, PROXY_NETWORK};
+use crate::consts::PROXY_NETWORK;
 use crate::detect::Status;
 use crate::detect::ports::probe_port;
 use crate::runner::SystemRunner;
@@ -22,7 +22,7 @@ use crate::stack::{certs, resolver, templates};
 /// this ourselves before the call.
 pub async fn up(runner: &SystemRunner, cfg: &Config) -> Result<()> {
     require_docker(runner).await?;
-    require_ports_free(runner).await?;
+    require_ports_free(runner, cfg).await?;
     templates::render_all(cfg)?;
     ensure_network(runner).await?;
     compose_up(runner).await?;
@@ -43,7 +43,7 @@ pub async fn up(runner: &SystemRunner, cfg: &Config) -> Result<()> {
 /// Each step is idempotent; rerunning `henk init` is safe.
 pub async fn init_full(runner: &SystemRunner, cfg: &Config) -> Result<()> {
     require_docker(runner).await?;
-    require_ports_free(runner).await?;
+    require_ports_free(runner, cfg).await?;
 
     println!("⤷ rendering stack templates ...");
     templates::render_all(cfg)?;
@@ -116,21 +116,27 @@ async fn require_docker(runner: &SystemRunner) -> Result<()> {
     }
 }
 
-async fn require_ports_free(runner: &SystemRunner) -> Result<()> {
+async fn require_ports_free(runner: &SystemRunner, cfg: &Config) -> Result<()> {
     let our_traefik_running = is_henk_traefik_running(runner).await;
     if our_traefik_running {
         return Ok(());
     }
 
-    let http = probe_port(runner, "host TCP :80", HTTP_PORT, "http").await;
-    let https = probe_port(runner, "host TCP :443", HTTPS_PORT, "https").await;
-
+    // Check every port we plan to publish on the host. Docker Desktop on
+    // macOS will silently drop conflicting bindings during `compose up`
+    // rather than erroring, so we must catch this ourselves.
+    let probes = [
+        ("host TCP :80", cfg.ports.http, "http"),
+        ("host TCP :443", cfg.ports.https, "https"),
+        ("loopback :dashboard", cfg.ports.dashboard, "Traefik dashboard"),
+        ("loopback :dnsmasq", cfg.ports.dnsmasq, "in-stack dnsmasq"),
+    ];
     let mut blockers = Vec::new();
-    if http.status == Status::Block {
-        blockers.push(http);
-    }
-    if https.status == Status::Block {
-        blockers.push(https);
+    for (name, port, purpose) in probes {
+        let item = probe_port(runner, name, port, purpose).await;
+        if item.status == Status::Block {
+            blockers.push(item);
+        }
     }
     if blockers.is_empty() {
         return Ok(());

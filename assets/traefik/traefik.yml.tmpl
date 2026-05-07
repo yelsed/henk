@@ -12,10 +12,13 @@ entryPoints:
     address: ":443"
 
 providers:
-  docker:
-    endpoint: "unix:///var/run/docker.sock"
-    exposedByDefault: false
-    network: henk-proxy
+  # File provider only. The docker provider is intentionally NOT enabled —
+  # Traefik 3.x's go-docker client hardcodes API v1.24 in its initial
+  # `/version` probe, which Docker 29.x rejects with HTTP 400. Rather than
+  # ship a path-rewriting socket proxy as a dependency, henk maintains
+  # `dynamic.yml` directly: every `henk link` writes a router/service
+  # entry that names the linked project's container by its DNS name on
+  # the shared `henk-proxy` network.
   file:
     filename: /etc/traefik/dynamic.yml
     watch: true

@@ -86,24 +86,24 @@ mod tests {
     }
 
     #[test]
-    fn compose_template_substitutes_ports_tld_and_header() {
+    fn compose_template_substitutes_ports_and_header() {
         let rendered = render(COMPOSE_TMPL, &vars_from(&cfg()));
         assert!(rendered.contains("# managed by henk"));
         assert!(rendered.contains("\"80:80\""));
         assert!(rendered.contains("\"443:443\""));
-        assert!(rendered.contains("127.0.0.1:8080:8080"));
-        assert!(rendered.contains("127.0.0.1:35353:53/udp"));
-        assert!(rendered.contains("127.0.0.1:35353:53/tcp"));
-        assert!(rendered.contains("Host(`traefik.test`)"));
+        assert!(rendered.contains("127.0.0.1:19080:8080"));
+        assert!(rendered.contains("name: henk-proxy"));
         assert!(!rendered.contains("{{"), "no template residue: \n{rendered}");
     }
 
     #[test]
-    fn traefik_template_has_required_providers() {
+    fn traefik_template_uses_file_provider_only() {
+        // M3 architecture: docker provider intentionally absent (Docker 29.x
+        // rejects Traefik's hardcoded /v1.24 API calls). henk maintains
+        // dynamic.yml directly. See traefik.yml.tmpl comment for context.
         let rendered = render(TRAEFIK_TMPL, &vars_from(&cfg()));
-        assert!(rendered.contains("docker:"), "needs docker provider");
         assert!(rendered.contains("file:"), "needs file provider");
-        assert!(rendered.contains("network: henk-proxy"));
+        assert!(!rendered.contains("docker:"), "must NOT enable docker provider");
         assert!(!rendered.contains("{{"));
     }
 
@@ -129,7 +129,9 @@ mod tests {
         let mut cfg = Config::default();
         cfg.tld = "henk".into();
         let v = vars_from(&cfg);
-        assert!(render(COMPOSE_TMPL, &v).contains("Host(`traefik.henk`)"));
+        // Dashboard router rule lives in dynamic.yml (M3 file-provider-only
+        // architecture). Cert paths and dnsmasq zone follow the chosen TLD.
+        assert!(render(DYNAMIC_TMPL, &v).contains("Host(`traefik.henk`)"));
         assert!(render(DYNAMIC_TMPL, &v).contains("certFile: /certs/_wildcard.henk.pem"));
         assert!(render(DNSMASQ_TMPL, &v).contains("address=/.henk/127.0.0.1"));
     }

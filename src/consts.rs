@@ -25,8 +25,10 @@ pub const DNSMASQ_PORT: u16 = 35353;
 pub const HTTP_PORT: u16 = 80;
 pub const HTTPS_PORT: u16 = 443;
 
-/// Port the Traefik dashboard binds on (loopback only).
-pub const DASHBOARD_PORT: u16 = 8080;
+/// Port the Traefik dashboard binds on (loopback only). 19080 picked to avoid
+/// the common :8080 collision (many local-dev tools and Sail-style projects
+/// publish there). Configurable per-machine via `~/.config/henk/config.toml`.
+pub const DASHBOARD_PORT: u16 = 19080;
 
 /// Shared Docker network name. Each linked Docker-mode project joins it.
 pub const PROXY_NETWORK: &str = "henk-proxy";
