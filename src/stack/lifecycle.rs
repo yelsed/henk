@@ -51,8 +51,12 @@ pub async fn init_full(runner: &SystemRunner, cfg: &Config) -> Result<()> {
     println!("⤷ ensuring mkcert's local CA is installed (may prompt) ...");
     certs::ensure_ca_installed(runner).await?;
 
-    println!("⤷ issuing wildcard cert for *.{tld} ...", tld = cfg.tld);
-    certs::ensure_wildcard(runner, &cfg.tld, false).await?;
+    println!(
+        "⤷ issuing wildcard cert for *.{tld} (with traefik.{tld} as explicit SAN) ...",
+        tld = cfg.tld
+    );
+    let dashboard_san = format!("traefik.{tld}", tld = cfg.tld);
+    certs::ensure_wildcard(runner, &cfg.tld, &[dashboard_san], false).await?;
 
     println!("⤷ ensuring Homebrew dnsmasq is installed and running ...");
     dnsmasq::ensure(runner, &cfg.tld).await?;

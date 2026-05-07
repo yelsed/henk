@@ -38,12 +38,24 @@ pub async fn ensure_ca_installed(runner: &SystemRunner) -> Result<()> {
     Ok(())
 }
 
-/// Generate the wildcard certificate covering `*.<tld>` and `<tld>` itself.
-/// Idempotent: if the cert + key already exist on disk, returns without
-/// regenerating. Pass `force = true` to always regenerate.
+/// Generate the wildcard certificate covering `*.<tld>`, `<tld>`, and
+/// any explicit hostnames listed in `extra_sans`. The explicit SANs are
+/// REQUIRED on macOS — modern curl/SecureTransport reject `*.<tld>` as a
+/// wildcard "right under a public suffix", so any hostname we want
+/// curl/browsers to validate must be listed explicitly in addition to
+/// the wildcard.
+///
+/// `henk init` (M3.5) calls this with `["traefik.<tld>"]` to make the
+/// dashboard URL trustworthy.
+///
+/// `henk link` (M4) calls this with each project's hostnames added to
+/// `extra_sans` and `force = true` so the cert is rotated to include
+/// the new names. Existing trust is preserved because the local CA is
+/// unchanged — only the leaf certificate rotates.
 pub async fn ensure_wildcard(
     runner: &SystemRunner,
     tld: &str,
+    extra_sans: &[String],
     force: bool,
 ) -> Result<()> {
     let cert = cert_path(tld)?;
@@ -57,26 +69,26 @@ pub async fn ensure_wildcard(
     std::fs::create_dir_all(certs_dir)
         .with_context(|| format!("creating {}", certs_dir.display()))?;
 
-    // mkcert defaults to numbering output files awkwardly when run with
-    // multiple SAN hostnames, so we pin -cert-file / -key-file explicitly.
     let cert_str = path_str(&cert)?;
     let key_str = path_str(&key)?;
     let wildcard = format!("*.{tld}");
 
+    let mut args: Vec<String> = vec![
+        "-cert-file".into(),
+        cert_str,
+        "-key-file".into(),
+        key_str,
+        wildcard,
+        tld.to_string(),
+    ];
+    for san in extra_sans {
+        args.push(san.clone());
+    }
+
     let out = runner
-        .run(
-            "mkcert",
-            [
-                "-cert-file",
-                &cert_str,
-                "-key-file",
-                &key_str,
-                &wildcard,
-                tld,
-            ],
-        )
+        .run("mkcert", args.iter().map(String::as_str))
         .await
-        .context("running `mkcert -cert-file ... -key-file ... *.<tld> <tld>`")?;
+        .context("running `mkcert -cert-file ... -key-file ... *.<tld> <tld> [extra-sans...]`")?;
     if !out.ok() {
         bail!(
             "mkcert wildcard generation failed:\n{}\n{}",

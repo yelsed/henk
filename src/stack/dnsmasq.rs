@@ -55,14 +55,94 @@ fn render(tld: &str) -> String {
 }
 
 /// Idempotent. Installs dnsmasq via brew if missing (caller asks for
-/// consent first), writes our drop-in config, and ensures the dnsmasq
-/// service is running under launchd. After the run, queries to
+/// consent first), wires the main `dnsmasq.conf` to load our drop-in
+/// directory, writes our drop-in for the chosen TLD, and ensures the
+/// dnsmasq service is running under launchd. After the run, queries to
 /// `127.0.0.1:53` for `*.<tld>` names should resolve to 127.0.0.1.
 pub async fn ensure(runner: &SystemRunner, tld: &str) -> Result<()> {
     install_if_missing(runner).await?;
+    ensure_conf_dir_directive(runner).await?;
     write_drop_in(runner, tld).await?;
     start_service(runner).await?;
+    verify_service_running(runner).await?;
     Ok(())
+}
+
+/// Homebrew ships `dnsmasq.conf` without a `conf-dir=...` directive, which
+/// means files we drop into `dnsmasq.d/` are silently ignored. Fix that by
+/// appending exactly one tagged line to the main config. Idempotent —
+/// skipped when our marker is already present.
+async fn ensure_conf_dir_directive(runner: &SystemRunner) -> Result<()> {
+    let main_conf = brew_prefix(runner).await?.join("etc/dnsmasq.conf");
+    let dir = brew_prefix(runner).await?.join("etc/dnsmasq.d");
+    let existing = fs::read_to_string(&main_conf).unwrap_or_default();
+
+    let marker = "# managed by henk — load drop-in configs";
+    if existing.contains(marker) {
+        return Ok(());
+    }
+
+    let directive = format!(
+        "\n{marker}\nconf-dir={},*.conf\n",
+        dir.display()
+    );
+    let mut new_contents = existing;
+    if !new_contents.ends_with('\n') {
+        new_contents.push('\n');
+    }
+    new_contents.push_str(&directive);
+
+    let tmp = main_conf.with_extension("tmp");
+    fs::write(&tmp, &new_contents)
+        .with_context(|| format!("writing {}", tmp.display()))?;
+    fs::rename(&tmp, &main_conf).with_context(|| {
+        format!(
+            "renaming {} -> {}",
+            tmp.display(),
+            main_conf.display()
+        )
+    })?;
+    Ok(())
+}
+
+/// Confirm the service actually came up after `brew services restart`.
+/// `brew services restart` returns 0 even when launchd refuses the plist,
+/// so we double-check by sending a real DNS query to 127.0.0.1:53 and
+/// verifying it answers with 127.0.0.1 for an arbitrary `*.<tld>` name.
+async fn verify_service_running(runner: &SystemRunner) -> Result<()> {
+    // Tiny retry loop — dnsmasq usually answers within ~50ms but can take
+    // up to a second on cold launchd starts.
+    for attempt in 0..10 {
+        let out = runner
+            .run(
+                "dig",
+                [
+                    "+short",
+                    "+time=1",
+                    "+tries=1",
+                    "@127.0.0.1",
+                    "henk-probe.invalid-suffix-this-shouldnt-exist",
+                ],
+            )
+            .await;
+        if let Ok(o) = out {
+            // We don't actually care about the value — just that dnsmasq
+            // answered (returns NXDOMAIN, empty stdout, exit 0). A timeout
+            // on the other hand returns a non-zero exit + "no servers"
+            // message on stderr.
+            if o.ok() {
+                return Ok(());
+            }
+        }
+        if attempt < 9 {
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        }
+    }
+    bail!(
+        "dnsmasq is not answering on 127.0.0.1:53 after `brew services restart`. \
+         Check `sudo brew services info dnsmasq`, `launchctl print system/homebrew.mxcl.dnsmasq`, \
+         and the log at $(brew --prefix)/var/log/dnsmasq.log."
+    )
 }
 
 async fn install_if_missing(runner: &SystemRunner) -> Result<()> {
