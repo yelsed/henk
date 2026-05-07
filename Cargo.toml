@@ -1,0 +1,60 @@
+[package]
+name = "henk"
+version = "0.1.0"
+edition = "2024"
+description = "Local-dev URL routing for Docker on macOS — Valet/Herd ergonomics for any container."
+license = "MIT"
+repository = "https://github.com/fivespark/henk"
+homepage = "https://github.com/fivespark/henk"
+readme = "README.md"
+keywords = ["docker", "traefik", "macos", "developer-tools", "local-dev"]
+categories = ["command-line-utilities", "development-tools"]
+
+[[bin]]
+name = "henk"
+path = "src/main.rs"
+
+[lib]
+name = "henk"
+path = "src/lib.rs"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive", "wrap_help"] }
+
+tokio = { version = "1", features = ["full"] }
+
+bollard = "0.18"
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+thiserror = "2"
+anyhow = "1"
+
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+ratatui = "0.29"
+crossterm = "0.28"
+inquire = "0.7"
+
+dirs = "5"
+walkdir = "2"
+
+regex = "1"
+
+chrono = { version = "0.4", features = ["serde"] }
+
+owo-colors = "4"
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+insta = { version = "1", features = ["yaml", "json"] }
+tempfile = "3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
