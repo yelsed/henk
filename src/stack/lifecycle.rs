@@ -10,7 +10,7 @@ use crate::detect::Status;
 use crate::detect::ports::probe_port;
 use crate::runner::SystemRunner;
 use crate::stack::paths;
-use crate::stack::{certs, resolver, templates};
+use crate::stack::{certs, dnsmasq, resolver, templates};
 
 /// Idempotent. Renders templates from the loaded `Config`, ensures the
 /// shared Docker network exists, then runs `docker compose up -d`. Does
@@ -54,11 +54,14 @@ pub async fn init_full(runner: &SystemRunner, cfg: &Config) -> Result<()> {
     println!("⤷ issuing wildcard cert for *.{tld} ...", tld = cfg.tld);
     certs::ensure_wildcard(runner, &cfg.tld, false).await?;
 
+    println!("⤷ ensuring Homebrew dnsmasq is installed and running ...");
+    dnsmasq::ensure(runner, &cfg.tld).await?;
+
     println!(
         "⤷ writing /etc/resolver/{tld} (sudo prompt incoming if not cached) ...",
         tld = cfg.tld
     );
-    resolver::ensure_written(runner, &cfg.tld, cfg.ports.dnsmasq).await?;
+    resolver::ensure_written(runner, &cfg.tld).await?;
 
     println!("⤷ ensuring docker network `{PROXY_NETWORK}` exists ...");
     ensure_network(runner).await?;
@@ -125,11 +128,13 @@ async fn require_ports_free(runner: &SystemRunner, cfg: &Config) -> Result<()> {
     // Check every port we plan to publish on the host. Docker Desktop on
     // macOS will silently drop conflicting bindings during `compose up`
     // rather than erroring, so we must catch this ourselves.
+    //
+    // dnsmasq's :53 is checked separately in the dnsmasq install path —
+    // it lives outside Docker so the failure mode is different.
     let probes = [
         ("host TCP :80", cfg.ports.http, "http"),
         ("host TCP :443", cfg.ports.https, "https"),
         ("loopback :dashboard", cfg.ports.dashboard, "Traefik dashboard"),
-        ("loopback :dnsmasq", cfg.ports.dnsmasq, "in-stack dnsmasq"),
     ];
     let mut blockers = Vec::new();
     for (name, port, purpose) in probes {

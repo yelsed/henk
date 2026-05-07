@@ -1,15 +1,19 @@
-//! Manage `/etc/resolver/<tld>` so macOS resolves `*.<tld>` via henk's
-//! in-stack dnsmasq container.
+//! Manage `/etc/resolver/<tld>` so macOS resolves `*.<tld>` via the
+//! Homebrew dnsmasq listening on 127.0.0.1:53.
 //!
 //! macOS reads files under `/etc/resolver/` (see `man 5 resolver`) and
-//! per-TLD overrides the system DNS for matching names. The resolver file
-//! we write looks like:
+//! per-TLD overrides the system DNS for matching names. The resolver
+//! file we write is the minimal possible:
 //!
 //! ```text
 //! # managed by henk
 //! nameserver 127.0.0.1
-//! port 35353
 //! ```
+//!
+//! No `port` directive — `dnsmasq` listens on the default :53. Earlier
+//! versions of henk targeted an in-stack dnsmasq on :35353; that path
+//! was abandoned in M3.5 because Docker Desktop on macOS silently drops
+//! DNS packets to in-container dnsmasq.
 
 use anyhow::{Context, Result, bail};
 use std::fs;
@@ -22,11 +26,9 @@ pub fn resolver_path(tld: &str) -> PathBuf {
     PathBuf::from(format!("/etc/resolver/{tld}"))
 }
 
-/// Render the resolver-file body for our chosen TLD + dnsmasq port.
-fn render(dnsmasq_port: u16) -> String {
-    format!(
-        "{HENK_FILE_HEADER}\nnameserver 127.0.0.1\nport {dnsmasq_port}\n"
-    )
+/// Render the resolver-file body for our chosen TLD.
+fn render() -> String {
+    format!("{HENK_FILE_HEADER}\nnameserver 127.0.0.1\n")
 }
 
 /// Status of the on-disk resolver file:
@@ -57,24 +59,17 @@ pub fn status(tld: &str) -> ResolverStatus {
 /// Uses sudo. Caller is expected to have primed credentials via `sudo -v`
 /// (see the `init` consent flow). The file is written via `sudo install`
 /// for atomicity.
-pub async fn ensure_written(
-    runner: &SystemRunner,
-    tld: &str,
-    dnsmasq_port: u16,
-) -> Result<()> {
+pub async fn ensure_written(runner: &SystemRunner, tld: &str) -> Result<()> {
     match status(tld) {
         ResolverStatus::Ours => {
-            // Re-render in case the dnsmasq port changed.
-            let desired = render(dnsmasq_port);
+            let desired = render();
             let current = fs::read_to_string(resolver_path(tld)).unwrap_or_default();
             if current == desired {
                 return Ok(());
             }
             install_with_sudo(runner, tld, &desired).await
         }
-        ResolverStatus::Missing => {
-            install_with_sudo(runner, tld, &render(dnsmasq_port)).await
-        }
+        ResolverStatus::Missing => install_with_sudo(runner, tld, &render()).await,
         ResolverStatus::Foreign => bail!(
             "/etc/resolver/{tld} exists but is not managed by henk.\n\
              Refusing to overwrite. Either remove that file manually or pick a different TLD."

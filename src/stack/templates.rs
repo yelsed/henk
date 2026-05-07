@@ -18,7 +18,6 @@ use crate::stack::paths;
 const COMPOSE_TMPL: &str = include_str!("../../assets/traefik/compose.yml.tmpl");
 const TRAEFIK_TMPL: &str = include_str!("../../assets/traefik/traefik.yml.tmpl");
 const DYNAMIC_TMPL: &str = include_str!("../../assets/traefik/dynamic.yml.tmpl");
-const DNSMASQ_TMPL: &str = include_str!("../../assets/dnsmasq/dnsmasq.conf.tmpl");
 
 /// Substitution variables shared across the templates.
 fn vars_from(cfg: &Config) -> BTreeMap<&'static str, String> {
@@ -27,7 +26,6 @@ fn vars_from(cfg: &Config) -> BTreeMap<&'static str, String> {
     vars.insert("HTTP_PORT", cfg.ports.http.to_string());
     vars.insert("HTTPS_PORT", cfg.ports.https.to_string());
     vars.insert("DASHBOARD_PORT", cfg.ports.dashboard.to_string());
-    vars.insert("DNSMASQ_PORT", cfg.ports.dnsmasq.to_string());
     vars.insert("TLD", cfg.tld.clone());
     vars
 }
@@ -54,7 +52,8 @@ pub fn render_all(cfg: &Config) -> Result<()> {
     write_if_changed(&paths::traefik_compose_path()?, &render(COMPOSE_TMPL, &vars))?;
     write_if_changed(&paths::traefik_static_path()?, &render(TRAEFIK_TMPL, &vars))?;
     write_if_changed(&paths::traefik_dynamic_path()?, &render(DYNAMIC_TMPL, &vars))?;
-    write_if_changed(&traefik_dir.join("dnsmasq.conf"), &render(DNSMASQ_TMPL, &vars))?;
+    // dnsmasq.conf is no longer rendered into the compose dir — dnsmasq runs
+    // under Homebrew/launchd on the host (M3.5). See `stack/dnsmasq.rs`.
 
     Ok(())
 }
@@ -117,22 +116,13 @@ mod tests {
     }
 
     #[test]
-    fn dnsmasq_template_routes_chosen_tld_to_loopback() {
-        let rendered = render(DNSMASQ_TMPL, &vars_from(&cfg()));
-        assert!(rendered.contains("address=/.test/127.0.0.1"));
-        assert!(rendered.contains("port=53"));
-        assert!(!rendered.contains("{{"));
-    }
-
-    #[test]
     fn fallback_tld_substitutes_throughout() {
         let mut cfg = Config::default();
         cfg.tld = "henk".into();
         let v = vars_from(&cfg);
         // Dashboard router rule lives in dynamic.yml (M3 file-provider-only
-        // architecture). Cert paths and dnsmasq zone follow the chosen TLD.
+        // architecture). Cert paths follow the chosen TLD.
         assert!(render(DYNAMIC_TMPL, &v).contains("Host(`traefik.henk`)"));
         assert!(render(DYNAMIC_TMPL, &v).contains("certFile: /certs/_wildcard.henk.pem"));
-        assert!(render(DNSMASQ_TMPL, &v).contains("address=/.henk/127.0.0.1"));
     }
 }

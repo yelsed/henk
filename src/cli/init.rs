@@ -65,12 +65,17 @@ fn print_plan(report: &DetectionReport, cfg: &Config) {
         tld = cfg.tld
     );
     println!(
-        "  · write /etc/resolver/{tld} (one sudo prompt) so *.{tld} resolves locally",
+        "  · write a dnsmasq drop-in to $(brew --prefix)/etc/dnsmasq.d/henk-{tld}.conf",
         tld = cfg.tld
     );
     println!(
-        "  · render the global Traefik + dnsmasq stack to ~/.config/henk/traefik/"
+        "  · `sudo brew services restart dnsmasq` (binds privileged port :53)"
     );
+    println!(
+        "  · write /etc/resolver/{tld} (one more sudo) so *.{tld} resolves via that dnsmasq",
+        tld = cfg.tld
+    );
+    println!("  · render the global Traefik stack to ~/.config/henk/traefik/");
     println!("  · start the stack via `docker compose up -d`");
     println!();
     println!(
@@ -90,7 +95,9 @@ fn print_plan(report: &DetectionReport, cfg: &Config) {
 fn missing_brew_pkgs(report: &DetectionReport) -> Vec<&str> {
     let mut missing = Vec::new();
     for item in &report.items {
-        if matches!(item.status, Status::Warn) && (item.name == "mkcert" || item.name == "nss") {
+        if matches!(item.status, Status::Warn)
+            && (item.name == "mkcert" || item.name == "nss" || item.name == "dnsmasq")
+        {
             missing.push(item.name);
         }
     }

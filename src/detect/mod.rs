@@ -109,6 +109,7 @@ pub async fn run_all(
     items.push(brew::probe_homebrew(runner).await);
     items.push(brew::probe_mkcert(runner).await);
     items.push(brew::probe_nss(runner).await);
+    items.push(brew::probe_dnsmasq(runner).await);
 
     // Coexistence with other dev tools.
     let valet_present = coexistence::valet_detected(runner).await;
@@ -127,15 +128,10 @@ pub async fn run_all(
     // Ports we plan to bind.
     items.push(ports::probe_port(runner, "host TCP :80", 80, "http").await);
     items.push(ports::probe_port(runner, "host TCP :443", 443, "https").await);
-    items.push(
-        ports::probe_port(
-            runner,
-            "loopback :35353",
-            crate::consts::DNSMASQ_PORT,
-            "dnsmasq (henk)",
-        )
-        .await,
-    );
+    // Port :53 lives outside the henk stack — it's bound by Homebrew dnsmasq
+    // under launchd. The dnsmasq install path handles the start/restart
+    // dance (sharing the slot with Valet/DDEV via the dnsmasq.d/ drop-in
+    // pattern is fine), so we don't probe it here.
 
     // Existing henk-proxy network or foreign Traefik containers.
     items.push(docker::probe_proxy_network(runner).await);

@@ -33,6 +33,10 @@ pub async fn probe_nss(runner: &SystemRunner) -> DetectionItem {
     probe_pkg(runner, "nss").await
 }
 
+pub async fn probe_dnsmasq(runner: &SystemRunner) -> DetectionItem {
+    probe_pkg(runner, "dnsmasq").await
+}
+
 async fn probe_pkg(runner: &SystemRunner, pkg: &'static str) -> DetectionItem {
     // Cheap path: is it in $PATH?
     if runner.which(pkg).await {
