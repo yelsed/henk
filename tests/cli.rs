@@ -63,9 +63,8 @@ fn init_dry_run_renders_detection_table() {
 
 #[test]
 fn unimplemented_subcommands_bail() {
-    // M2 implements `up` and `down`; they are not in this list anymore.
-    // M3+ will progressively remove the rest.
-    for sub in ["link", "unlink", "status", "doctor", "update", "uninstall"] {
+    // Removed as each milestone lands them: up/down (M2/M3), link (M4).
+    for sub in ["unlink", "status", "doctor", "update", "uninstall"] {
         henk()
             .arg(sub)
             .assert()
