@@ -11,7 +11,7 @@ use crate::runner::SystemRunner;
 mod brew;
 mod coexistence;
 mod docker;
-mod ports;
+pub mod ports;
 mod resolver;
 mod tld;
 

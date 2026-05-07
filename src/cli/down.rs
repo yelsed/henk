@@ -1,5 +1,9 @@
-use anyhow::{Result, bail};
+use anyhow::Result;
+
+use crate::runner::SystemRunner;
+use crate::stack::lifecycle;
 
 pub async fn run() -> Result<()> {
-    bail!("henk down is not yet implemented (M2/M3).");
+    let runner = SystemRunner::new();
+    lifecycle::down(&runner).await
 }

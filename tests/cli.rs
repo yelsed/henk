@@ -68,7 +68,9 @@ fn init_without_dry_run_bails_in_m1() {
 
 #[test]
 fn unimplemented_subcommands_bail() {
-    for sub in ["link", "unlink", "status", "up", "down", "doctor", "update", "uninstall"] {
+    // M2 implements `up` and `down`; they are not in this list anymore.
+    // M3+ will progressively remove the rest.
+    for sub in ["link", "unlink", "status", "doctor", "update", "uninstall"] {
         henk()
             .arg(sub)
             .assert()
