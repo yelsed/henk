@@ -1,4 +1,5 @@
-//! Render the global Traefik stack config to `~/.config/henk/traefik/`.
+//! Render the global stack config (Traefik + dnsmasq) to
+//! `~/.config/henk/traefik/`.
 //!
 //! Templates are embedded via `include_str!` and substituted using a tiny
 //! `{{NAME}}` syntax. We deliberately avoid pulling in a templating engine
@@ -10,20 +11,24 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
-use crate::consts::{DASHBOARD_PORT, HENK_FILE_HEADER, HTTP_PORT, HTTPS_PORT};
+use crate::config::Config;
+use crate::consts::HENK_FILE_HEADER;
 use crate::stack::paths;
 
 const COMPOSE_TMPL: &str = include_str!("../../assets/traefik/compose.yml.tmpl");
 const TRAEFIK_TMPL: &str = include_str!("../../assets/traefik/traefik.yml.tmpl");
 const DYNAMIC_TMPL: &str = include_str!("../../assets/traefik/dynamic.yml.tmpl");
+const DNSMASQ_TMPL: &str = include_str!("../../assets/dnsmasq/dnsmasq.conf.tmpl");
 
 /// Substitution variables shared across the templates.
-fn default_vars() -> BTreeMap<&'static str, String> {
+fn vars_from(cfg: &Config) -> BTreeMap<&'static str, String> {
     let mut vars = BTreeMap::new();
     vars.insert("HENK_FILE_HEADER", HENK_FILE_HEADER.to_string());
-    vars.insert("HTTP_PORT", HTTP_PORT.to_string());
-    vars.insert("HTTPS_PORT", HTTPS_PORT.to_string());
-    vars.insert("DASHBOARD_PORT", DASHBOARD_PORT.to_string());
+    vars.insert("HTTP_PORT", cfg.ports.http.to_string());
+    vars.insert("HTTPS_PORT", cfg.ports.https.to_string());
+    vars.insert("DASHBOARD_PORT", cfg.ports.dashboard.to_string());
+    vars.insert("DNSMASQ_PORT", cfg.ports.dnsmasq.to_string());
+    vars.insert("TLD", cfg.tld.clone());
     vars
 }
 
@@ -35,70 +40,21 @@ fn render(template: &str, vars: &BTreeMap<&'static str, String>) -> String {
     out
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn compose_template_substitutes_ports_and_header() {
-        let vars = default_vars();
-        let rendered = render(COMPOSE_TMPL, &vars);
-        assert!(
-            rendered.contains("# managed by henk"),
-            "compose.yml should carry the henk header"
-        );
-        assert!(
-            rendered.contains(&format!("\"{HTTP_PORT}:80\"")),
-            "compose.yml should bind host {HTTP_PORT} to container 80"
-        );
-        assert!(
-            rendered.contains(&format!("\"{HTTPS_PORT}:443\"")),
-            "compose.yml should bind host {HTTPS_PORT} to container 443"
-        );
-        assert!(
-            rendered.contains(&format!("127.0.0.1:{DASHBOARD_PORT}:8080")),
-            "compose.yml should bind dashboard on loopback only"
-        );
-        assert!(
-            !rendered.contains("{{"),
-            "no unsubstituted template tokens may remain: \n{rendered}"
-        );
-    }
-
-    #[test]
-    fn traefik_template_has_docker_provider() {
-        // M2 only wires up the docker provider; the file provider lands in M3
-        // when dynamic.yml gains TLS material.
-        let vars = default_vars();
-        let rendered = render(TRAEFIK_TMPL, &vars);
-        assert!(rendered.contains("docker:"), "needs docker provider");
-        assert!(rendered.contains("network: henk-proxy"));
-        assert!(!rendered.contains("{{"));
-    }
-
-    #[test]
-    fn dynamic_template_carries_header_and_no_template_residue() {
-        // M2: dynamic.yml is intentionally just a comment header. M3 adds TLS
-        // material; M6 adds host-mode routers/services.
-        let vars = default_vars();
-        let rendered = render(DYNAMIC_TMPL, &vars);
-        assert!(rendered.contains("# managed by henk"));
-        assert!(!rendered.contains("{{"));
-    }
-}
-
-/// Write the three Traefik config files into `~/.config/henk/traefik/`.
+/// Write all stack-config files into `~/.config/henk/traefik/`.
 /// Idempotent: if the existing file matches what we'd write, leaves it
 /// untouched. Atomic per-file (temp + rename).
-pub fn render_all() -> Result<()> {
-    let vars = default_vars();
+pub fn render_all(cfg: &Config) -> Result<()> {
+    let vars = vars_from(cfg);
     let traefik_dir = paths::traefik_dir()?;
     fs::create_dir_all(&traefik_dir)
         .with_context(|| format!("creating {}", traefik_dir.display()))?;
+    fs::create_dir_all(traefik_dir.join("certs"))
+        .with_context(|| format!("creating {}", traefik_dir.join("certs").display()))?;
 
     write_if_changed(&paths::traefik_compose_path()?, &render(COMPOSE_TMPL, &vars))?;
     write_if_changed(&paths::traefik_static_path()?, &render(TRAEFIK_TMPL, &vars))?;
     write_if_changed(&paths::traefik_dynamic_path()?, &render(DYNAMIC_TMPL, &vars))?;
+    write_if_changed(&traefik_dir.join("dnsmasq.conf"), &render(DNSMASQ_TMPL, &vars))?;
 
     Ok(())
 }
@@ -119,4 +75,62 @@ fn write_if_changed(path: &Path, contents: &str) -> Result<()> {
     fs::rename(&tmp, path)
         .with_context(|| format!("renaming {} -> {}", tmp.display(), path.display()))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cfg() -> Config {
+        Config::default()
+    }
+
+    #[test]
+    fn compose_template_substitutes_ports_tld_and_header() {
+        let rendered = render(COMPOSE_TMPL, &vars_from(&cfg()));
+        assert!(rendered.contains("# managed by henk"));
+        assert!(rendered.contains("\"80:80\""));
+        assert!(rendered.contains("\"443:443\""));
+        assert!(rendered.contains("127.0.0.1:8080:8080"));
+        assert!(rendered.contains("127.0.0.1:35353:53/udp"));
+        assert!(rendered.contains("127.0.0.1:35353:53/tcp"));
+        assert!(rendered.contains("Host(`traefik.test`)"));
+        assert!(!rendered.contains("{{"), "no template residue: \n{rendered}");
+    }
+
+    #[test]
+    fn traefik_template_has_required_providers() {
+        let rendered = render(TRAEFIK_TMPL, &vars_from(&cfg()));
+        assert!(rendered.contains("docker:"), "needs docker provider");
+        assert!(rendered.contains("file:"), "needs file provider");
+        assert!(rendered.contains("network: henk-proxy"));
+        assert!(!rendered.contains("{{"));
+    }
+
+    #[test]
+    fn dynamic_template_carries_wildcard_cert_paths() {
+        let rendered = render(DYNAMIC_TMPL, &vars_from(&cfg()));
+        assert!(rendered.contains("certFile: /certs/_wildcard.test.pem"));
+        assert!(rendered.contains("keyFile: /certs/_wildcard.test-key.pem"));
+        assert!(rendered.contains("# managed by henk"));
+        assert!(!rendered.contains("{{"));
+    }
+
+    #[test]
+    fn dnsmasq_template_routes_chosen_tld_to_loopback() {
+        let rendered = render(DNSMASQ_TMPL, &vars_from(&cfg()));
+        assert!(rendered.contains("address=/.test/127.0.0.1"));
+        assert!(rendered.contains("port=53"));
+        assert!(!rendered.contains("{{"));
+    }
+
+    #[test]
+    fn fallback_tld_substitutes_throughout() {
+        let mut cfg = Config::default();
+        cfg.tld = "henk".into();
+        let v = vars_from(&cfg);
+        assert!(render(COMPOSE_TMPL, &v).contains("Host(`traefik.henk`)"));
+        assert!(render(DYNAMIC_TMPL, &v).contains("certFile: /certs/_wildcard.henk.pem"));
+        assert!(render(DNSMASQ_TMPL, &v).contains("address=/.henk/127.0.0.1"));
+    }
 }

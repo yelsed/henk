@@ -1,12 +1,18 @@
 //! Filesystem paths for henk's global state.
+//!
+//! All paths are XDG-style under `~/.config/henk/` on every platform we
+//! support (macOS only for now). We deliberately do NOT use
+//! `dirs::config_dir()` because on macOS that returns
+//! `~/Library/Application Support/`, which is the GUI convention; CLI
+//! tools idiomatically live under `~/.config/`.
 
 use anyhow::{Context, Result};
 use std::path::PathBuf;
 
 /// `~/.config/henk/`. Created on demand.
 pub fn config_dir() -> Result<PathBuf> {
-    let base = dirs::config_dir().context("could not resolve $HOME/.config")?;
-    Ok(base.join("henk"))
+    let home = dirs::home_dir().context("could not resolve $HOME")?;
+    Ok(home.join(".config").join("henk"))
 }
 
 /// `~/.config/henk/traefik/`. The directory the global compose stack lives in.

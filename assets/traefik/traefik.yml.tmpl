@@ -16,8 +16,9 @@ providers:
     endpoint: "unix:///var/run/docker.sock"
     exposedByDefault: false
     network: henk-proxy
-  # file provider is wired up in M3 once dynamic.yml carries TLS / host-mode
-  # entries. Adding it before that confuses Traefik with empty config.
+  file:
+    filename: /etc/traefik/dynamic.yml
+    watch: true
 
 log:
   level: WARN

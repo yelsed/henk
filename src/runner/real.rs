@@ -52,6 +52,26 @@ impl SystemRunner {
             Err(_) => false,
         }
     }
+
+    /// Run a program with stdin/stdout/stderr inherited from the current
+    /// process. Used for interactive prompts (sudo password, mkcert keychain
+    /// confirmation, etc.). Returns the exit status; output is not captured.
+    pub async fn run_inherit<I, S>(&self, program: &str, args: I) -> anyhow::Result<i32>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
+        use std::process::Stdio;
+        let status = Command::new(program)
+            .args(args)
+            .stdin(Stdio::inherit())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .status()
+            .await
+            .with_context(|| format!("failed to execute `{program}`"))?;
+        Ok(status.code().unwrap_or(-1))
+    }
 }
 
 #[derive(Debug, Clone)]

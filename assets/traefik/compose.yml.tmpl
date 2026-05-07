@@ -15,13 +15,35 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./traefik.yml:/etc/traefik/traefik.yml:ro
       - ./dynamic.yml:/etc/traefik/dynamic.yml:ro
+      - ./certs:/certs:ro
     networks:
       - henk-proxy
     labels:
       - traefik.enable=true
-      - traefik.http.routers.henk-dashboard.rule=Host(`traefik.localhost`)
-      - traefik.http.routers.henk-dashboard.entrypoints=web
+      - traefik.http.routers.henk-dashboard.rule=Host(`traefik.{{TLD}}`)
+      - traefik.http.routers.henk-dashboard.entrypoints=websecure
+      - traefik.http.routers.henk-dashboard.tls=true
       - traefik.http.routers.henk-dashboard.service=api@internal
+
+  dnsmasq:
+    image: alpine:3.20
+    container_name: henk-dnsmasq
+    restart: unless-stopped
+    # Install dnsmasq once per container creation (~2s on first start) then
+    # exec it. Avoids depending on a third-party dnsmasq image.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >
+        apk add --no-cache dnsmasq >/dev/null 2>&1 &&
+        exec dnsmasq -k --conf-file=/etc/dnsmasq/dnsmasq.conf --user=root
+    volumes:
+      - ./dnsmasq.conf:/etc/dnsmasq/dnsmasq.conf:ro
+    ports:
+      - "127.0.0.1:{{DNSMASQ_PORT}}:53/udp"
+      - "127.0.0.1:{{DNSMASQ_PORT}}:53/tcp"
+    networks:
+      - henk-proxy
 
 networks:
   henk-proxy:

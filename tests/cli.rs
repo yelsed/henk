@@ -57,14 +57,9 @@ fn init_dry_run_renders_detection_table() {
     assert!(stdout.contains("TLD:"));
 }
 
-#[test]
-fn init_without_dry_run_bails_in_m1() {
-    henk()
-        .arg("init")
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("not yet implemented"));
-}
+// `henk init` (full) is interactive and modifies the system. It's covered
+// by the manual three-project verification scenario in
+// docs/architecture.md, not by an automated CLI test.
 
 #[test]
 fn unimplemented_subcommands_bail() {
