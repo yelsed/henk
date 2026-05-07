@@ -74,8 +74,33 @@ pub async fn run(
     let extra_sans: Vec<String> = collect_extra_sans(&cfg, project_dir)?;
     certs::ensure_wildcard(runner, &cfg.tld, &extra_sans, true).await?;
 
+    // Cert files on disk are reloaded by Traefik only when the dynamic
+    // config it references changes (or the container restarts). Just
+    // rotating the leaf cert in place isn't enough — Traefik holds the
+    // previous cert in memory. Restart the container so the new SANs
+    // are served immediately.
+    if is_henk_traefik_running(runner).await {
+        let _ = runner.run("docker", ["restart", "henk-traefik"]).await;
+    }
+
     print_summary(&manifest, project_dir);
     Ok(())
+}
+
+async fn is_henk_traefik_running(runner: &SystemRunner) -> bool {
+    let out = runner
+        .run(
+            "docker",
+            [
+                "ps",
+                "--filter",
+                "name=henk-traefik",
+                "--format",
+                "{{.Names}}",
+            ],
+        )
+        .await;
+    matches!(out, Ok(o) if o.ok() && o.stdout.lines().any(|l| l.trim() == "henk-traefik"))
 }
 
 fn derive_slug(project_dir: &Path) -> Result<String> {
@@ -123,7 +148,7 @@ fn build_host_entry(detection: &ProjectDetection, host: &str) -> Result<HostEntr
 }
 
 fn handle_port_collision(project_dir: &Path, port: u16) -> Result<()> {
-    let alt = if port == 80 { 8080 } else { 8443 };
+    let alt = pick_free_alt_port(port);
     println!();
     println!(
         "  ! Your web service publishes :{port} on the host — Traefik also wants :{port}."
@@ -149,6 +174,34 @@ fn handle_port_collision(project_dir: &Path, port: u16) -> Result<()> {
         println!("    ✓ APP_PORT already set in .env — left untouched");
     }
     Ok(())
+}
+
+/// Pick a free local TCP port to suggest as the new APP_PORT. Probes a
+/// sensible list of high candidates and returns the first one nothing's
+/// listening on. If everything we try is busy (extremely rare on a dev
+/// laptop), fall back to a hard-coded value with the user told via
+/// the wizard summary.
+fn pick_free_alt_port(collided: u16) -> u16 {
+    let candidates: &[u16] = if collided == 443 {
+        &[18443, 28443, 38443, 8443]
+    } else {
+        &[18080, 18081, 18082, 28080, 28081, 8081, 8082, 8083]
+    };
+    for &c in candidates {
+        if is_port_free(c) {
+            return c;
+        }
+    }
+    // Fallback — at least *try* something rather than failing the link.
+    candidates[0]
+}
+
+fn is_port_free(port: u16) -> bool {
+    use std::net::TcpListener;
+    // Bind on 127.0.0.1 only — same surface Sail's APP_PORT typically
+    // exposes, and avoids racing on 0.0.0.0 if something else is
+    // listening on a specific interface.
+    TcpListener::bind(("0.0.0.0", port)).is_ok()
 }
 
 fn collect_extra_sans(cfg: &Config, project_dir: &Path) -> Result<Vec<String>> {

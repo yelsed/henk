@@ -13,7 +13,9 @@ services:
       - "127.0.0.1:{{DASHBOARD_PORT}}:8080"
     volumes:
       - ./traefik.yml:/etc/traefik/traefik.yml:ro
-      - ./dynamic.yml:/etc/traefik/dynamic.yml:ro
+      # Mount the *whole* dynamic dir so per-project YAMLs (`<slug>.yml`)
+      # are picked up by Traefik's file provider in `directory:` mode.
+      - ../dynamic:/etc/traefik/dynamic:ro
       - ./certs:/certs:ro
     networks:
       - henk-proxy

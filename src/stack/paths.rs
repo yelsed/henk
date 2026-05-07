@@ -30,14 +30,15 @@ pub fn traefik_static_path() -> Result<PathBuf> {
     Ok(traefik_dir()?.join("traefik.yml"))
 }
 
-/// `~/.config/henk/traefik/dynamic.yml`.
-pub fn traefik_dynamic_path() -> Result<PathBuf> {
-    Ok(traefik_dir()?.join("dynamic.yml"))
-}
-
-/// `~/.config/henk/dynamic/` — Traefik file-provider entries for Host-mode
-/// projects. Empty in M2; populated by `henk link` in M6.
-#[allow(dead_code)]
+/// `~/.config/henk/dynamic/` — Traefik file-provider directory.
+/// Holds the dashboard / TLS YAML (`_henk.yml`) plus one file per
+/// linked project (`<slug>.yml`). Mounted into Traefik via the
+/// compose file in `directory:` mode.
 pub fn dynamic_projects_dir() -> Result<PathBuf> {
     Ok(config_dir()?.join("dynamic"))
+}
+
+/// Path to the dashboard / TLS file inside the dynamic dir.
+pub fn traefik_dynamic_path() -> Result<PathBuf> {
+    Ok(dynamic_projects_dir()?.join("_henk.yml"))
 }
