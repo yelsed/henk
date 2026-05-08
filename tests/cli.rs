@@ -64,7 +64,7 @@ fn init_dry_run_renders_detection_table() {
 #[test]
 fn unimplemented_subcommands_bail() {
     // Removed as each milestone lands them: up/down (M2/M3), link (M4).
-    for sub in ["status", "doctor", "update", "uninstall"] {
+    for sub in ["doctor", "update", "uninstall"] {
         henk()
             .arg(sub)
             .assert()

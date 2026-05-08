@@ -87,8 +87,7 @@ impl DetectionReport {
         } else {
             println!(
                 "{}",
-                "No blockers. `henk init` would proceed (full mode lands in M5)."
-                    .green()
+                "No blockers — `henk init` is ready to run.".green()
             );
         }
         println!();
@@ -125,9 +124,20 @@ pub async fn run_all(
     // Existing resolver file for our chosen TLD.
     items.push(resolver::probe(&tld.value()));
 
-    // Ports we plan to bind.
-    items.push(ports::probe_port(runner, "host TCP :80", 80, "http").await);
-    items.push(ports::probe_port(runner, "host TCP :443", 443, "https").await);
+    // Ports we plan to bind. If our own Traefik is already bound to
+    // these, downgrade the Block to an Info — re-running `henk init` on
+    // a host where the stack is already up shouldn't be a hard fail.
+    let henk_traefik_ports = henk_traefik_published_ports(runner).await;
+    let mut p80 = ports::probe_port(runner, "host TCP :80", 80, "http").await;
+    let mut p443 = ports::probe_port(runner, "host TCP :443", 443, "https").await;
+    for (item, port) in [(&mut p80, 80u16), (&mut p443, 443u16)] {
+        if item.status == Status::Block && henk_traefik_ports.contains(&port) {
+            item.status = Status::Info;
+            item.detail = format!("bound by henk-traefik (will be reused)");
+        }
+    }
+    items.push(p80);
+    items.push(p443);
     // Port :53 lives outside the henk stack — it's bound by Homebrew dnsmasq
     // under launchd. The dnsmasq install path handles the start/restart
     // dance (sharing the slot with Valet/DDEV via the dnsmasq.d/ drop-in
@@ -138,4 +148,41 @@ pub async fn run_all(
     items.push(docker::probe_foreign_traefik(runner).await);
 
     Ok(DetectionReport { items, tld })
+}
+
+/// Host ports the running `henk-traefik` container publishes. Empty when
+/// the container isn't running. Used to recognise our own port bindings
+/// during re-init so they don't show up as collisions.
+async fn henk_traefik_published_ports(runner: &SystemRunner) -> Vec<u16> {
+    let out = runner
+        .run(
+            "docker",
+            [
+                "ps",
+                "--filter",
+                "name=henk-traefik",
+                "--format",
+                "{{.Ports}}",
+            ],
+        )
+        .await;
+    let Ok(o) = out else { return Vec::new() };
+    if !o.ok() {
+        return Vec::new();
+    }
+    // `docker ps --format {{.Ports}}` returns lines like
+    // `0.0.0.0:80->80/tcp, 127.0.0.1:19080->8080/tcp`. We just want the
+    // host-side port numbers (the segment immediately before `->`).
+    let mut ports = Vec::new();
+    for chunk in o.stdout.split([',', ' ', '\n']) {
+        let chunk = chunk.trim();
+        let Some((host_part, _container_part)) = chunk.split_once("->") else {
+            continue;
+        };
+        let port_str = host_part.rsplit(':').next().unwrap_or(host_part);
+        if let Ok(p) = port_str.parse::<u16>() {
+            ports.push(p);
+        }
+    }
+    ports
 }
