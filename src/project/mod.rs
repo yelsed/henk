@@ -8,4 +8,5 @@ pub mod file_provider;
 pub mod link;
 pub mod manifest;
 pub mod override_file;
+pub mod preflight;
 pub mod unlink;

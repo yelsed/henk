@@ -8,7 +8,7 @@ use crate::config::Config;
 use crate::project::compose;
 use crate::project::detect::{self, ProjectDetection};
 use crate::project::manifest::{HostEntry, ProjectManifest, ProjectMode};
-use crate::project::{env_file, file_provider, override_file};
+use crate::project::{env_file, file_provider, override_file, preflight};
 use crate::runner::SystemRunner;
 use crate::stack::{certs, paths};
 
@@ -155,13 +155,27 @@ pub async fn run(
     }
 
     print_summary(&manifest, project_dir);
-    if let Some(vite_host) = vite_host_added {
-        print_vite_snippet(&vite_host);
+    if let Some(vite_host) = &vite_host_added {
+        print_vite_snippet(vite_host);
     }
     if matches!(detection.mode, ProjectMode::Host) {
         let port = detection.web_port.unwrap_or(3000);
         print_host_mode_hint(port);
     }
+
+    // Static preflight last, so the user sees specific fixes for what's
+    // actually missing in their config rather than the generic snippets
+    // above. The two are intentional duplicates today — one prints the
+    // canonical "if you're starting from scratch" config, one prints
+    // "exactly what's missing in YOUR file."
+    let preflight_issues = preflight::analyze(
+        project_dir,
+        &detection,
+        &new_host,
+        vite_host_added.as_deref(),
+    );
+    preflight::print_report(&preflight_issues);
+
     Ok(())
 }
 
