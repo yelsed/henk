@@ -77,8 +77,7 @@ impl ProjectManifest {
         if !p.exists() {
             return Ok(None);
         }
-        let raw = fs::read_to_string(&p)
-            .with_context(|| format!("reading {}", p.display()))?;
+        let raw = fs::read_to_string(&p).with_context(|| format!("reading {}", p.display()))?;
         let parsed: Self = toml::from_str(&raw)
             .with_context(|| format!("parsing {} as .henk.toml", p.display()))?;
         Ok(Some(parsed))

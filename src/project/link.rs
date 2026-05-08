@@ -26,8 +26,8 @@ pub async fn run(
     service_override: Option<String>,
     port_override: Option<u16>,
 ) -> Result<()> {
-    let cfg = Config::load()?
-        .context("henk has not been initialised yet — run `henk init` first")?;
+    let cfg =
+        Config::load()?.context("henk has not been initialised yet — run `henk init` first")?;
 
     let slug = derive_slug(project_dir)?;
     let mut detection = detect::detect(project_dir, &slug, &cfg.tld)?;
@@ -41,10 +41,9 @@ pub async fn run(
         detection.web_service = Some(svc);
         detection.web_port = port_override.or(detection.web_port);
     } else if matches!(detection.mode, ProjectMode::Docker) {
-        let needs_pick = detection.web_service.is_none() || (add_only && detection.candidates.len() > 1);
-        if needs_pick
-            && let Some((svc, port)) = pick_web_service(&detection.candidates)?
-        {
+        let needs_pick =
+            detection.web_service.is_none() || (add_only && detection.candidates.len() > 1);
+        if needs_pick && let Some((svc, port)) = pick_web_service(&detection.candidates)? {
             detection.web_service = Some(svc);
             detection.web_port = Some(port);
         }
@@ -77,15 +76,15 @@ pub async fn run(
     let vite_offered = !add_only
         && detection.vite_detected
         && matches!(detection.mode, ProjectMode::Docker)
-        && !manifest.hosts.iter().any(|h| h.flags.iter().any(|f| f == "vite"));
+        && !manifest
+            .hosts
+            .iter()
+            .any(|h| h.flags.iter().any(|f| f == "vite"));
     let mut vite_host_added: Option<String> = None;
     if vite_offered {
         let vite_host = format!("vite.{new_host}");
         if !manifest.has_host(&vite_host) && offer_vite_subhost(&vite_host)? {
-            if let (Some(svc), _) = (
-                manifest.hosts.first().and_then(|h| h.service.clone()),
-                (),
-            ) {
+            if let (Some(svc), _) = (manifest.hosts.first().and_then(|h| h.service.clone()), ()) {
                 manifest.hosts.push(HostEntry {
                     host: vite_host.clone(),
                     service: Some(svc),
@@ -206,15 +205,12 @@ fn derive_slug(project_dir: &Path) -> Result<String> {
 fn build_host_entry(detection: &ProjectDetection, host: &str) -> Result<HostEntry> {
     match detection.mode {
         ProjectMode::Docker => {
-            let service = detection
-                .web_service
-                .clone()
-                .context(
-                    "could not find any web-eligible service in your compose file. \
+            let service = detection.web_service.clone().context(
+                "could not find any web-eligible service in your compose file. \
                      Make sure at least one service publishes a port on the host \
                      (e.g. `ports: [\"80:80\"]`), or pass `--host` after a manual \
                      `.henk.toml` edit.",
-                )?;
+            )?;
             let port = detection
                 .web_port
                 .context("internal: web_port must accompany web_service")?;
@@ -265,12 +261,8 @@ fn build_host_entry(detection: &ProjectDetection, host: &str) -> Result<HostEntr
 fn handle_port_collision(project_dir: &Path, port: u16) -> Result<()> {
     let alt = pick_free_alt_port(port);
     println!();
-    println!(
-        "  ! Your web service publishes :{port} on the host — Traefik also wants :{port}."
-    );
-    println!(
-        "    Suggested fix: append `APP_PORT={alt}` to your `.env` so Sail/Compose"
-    );
+    println!("  ! Your web service publishes :{port} on the host — Traefik also wants :{port}.");
+    println!("    Suggested fix: append `APP_PORT={alt}` to your `.env` so Sail/Compose");
     println!("    binds the host port elsewhere. Traefik talks to the container directly,");
     println!("    so the URL still works.");
     print!("    Append `APP_PORT={alt}` to .env now? [Y/n] ");
@@ -382,9 +374,7 @@ fn print_detection(d: &ProjectDetection) {
         println!("  vite:           detected (sub-host offered after main link in M4b)");
     }
     if let Some(p) = d.port_collision {
-        println!(
-            "  port collision: service publishes :{p} — APP_PORT prompt incoming"
-        );
+        println!("  port collision: service publishes :{p} — APP_PORT prompt incoming");
     }
     println!();
 }
@@ -402,16 +392,16 @@ fn announce_override_target(target: &override_file::OverrideTarget) {
                 path.display(),
                 existing_canonical.display()
             );
-            println!(
-                "  add this to your project's .env so Compose picks both up:"
-            );
+            println!("  add this to your project's .env so Compose picks both up:");
             println!(
                 "    COMPOSE_FILE={}:{}",
                 existing_canonical
                     .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or("compose.override.yml"),
-                path.file_name().and_then(|n| n.to_str()).unwrap_or("henk.override.yml")
+                path.file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("henk.override.yml")
             );
         }
     }
@@ -487,12 +477,15 @@ fn pick_web_service(
 
     let labels: Vec<String> = candidates
         .iter()
-        .map(|c| format!("{} (:{} → :{}) — {}", c.name, c.host_port, c.container_port, c.rationale))
+        .map(|c| {
+            format!(
+                "{} (:{} → :{}) — {}",
+                c.name, c.host_port, c.container_port, c.rationale
+            )
+        })
         .collect();
     let selection = inquire::Select::new("Which service should answer this URL?", labels.clone())
-        .with_help_message(
-            "henk couldn't pin a single web service — pick the one users will hit",
-        )
+        .with_help_message("henk couldn't pin a single web service — pick the one users will hit")
         .prompt();
     let chosen_label = match selection {
         Ok(s) => s,
@@ -554,12 +547,8 @@ fn print_vite_snippet(vite_host: &str) {
     println!("    }},");
     println!("  }})");
     println!();
-    println!(
-        "  Note: Sail publishes :5173 from the laravel.test container. Set"
-    );
-    println!(
-        "  `VITE_PORT=15173` (or any free high port) in `.env` to free host:5173,"
-    );
+    println!("  Note: Sail publishes :5173 from the laravel.test container. Set");
+    println!("  `VITE_PORT=15173` (or any free high port) in `.env` to free host:5173,");
     println!("  then `./vendor/bin/sail down && ./vendor/bin/sail up -d` to apply.");
     println!();
 }
@@ -572,42 +561,21 @@ fn print_vite_snippet(vite_host: &str) {
 fn print_host_mode_hint(port: u16) {
     use owo_colors::OwoColorize;
     println!();
-    println!(
-        "{}",
-        "Host mode: bind your dev server to 0.0.0.0".bold()
-    );
+    println!("{}", "Host mode: bind your dev server to 0.0.0.0".bold());
     println!();
-    println!(
-        "  Traefik runs in Docker and reaches your dev server via"
-    );
-    println!(
-        "  `host.docker.internal`, which only sees ports bound on the"
-    );
-    println!(
-        "  IPv4 wildcard. By default Nuxt/Vite/Next bind to 127.0.0.1"
-    );
-    println!(
-        "  or `[::1]` only — that gives you a 502 through https://."
-    );
+    println!("  Traefik runs in Docker and reaches your dev server via");
+    println!("  `host.docker.internal`, which only sees ports bound on the");
+    println!("  IPv4 wildcard. By default Nuxt/Vite/Next bind to 127.0.0.1");
+    println!("  or `[::1]` only — that gives you a 502 through https://.");
     println!();
     println!("  Pick whichever applies:");
     println!();
-    println!(
-        "    Nuxt:  npm run dev -- --host 0.0.0.0 --port {port}"
-    );
-    println!(
-        "    Vite:  npm run dev -- --host 0.0.0.0 --port {port}"
-    );
-    println!(
-        "    Next:  npx next dev -H 0.0.0.0 -p {port}"
-    );
+    println!("    Nuxt:  npm run dev -- --host 0.0.0.0 --port {port}");
+    println!("    Vite:  npm run dev -- --host 0.0.0.0 --port {port}");
+    println!("    Next:  npx next dev -H 0.0.0.0 -p {port}");
     println!();
-    println!(
-        "  Or set the bind address in your framework's config so"
-    );
-    println!(
-        "  `npm run dev` does the right thing without flags."
-    );
+    println!("  Or set the bind address in your framework's config so");
+    println!("  `npm run dev` does the right thing without flags.");
     println!();
 }
 
@@ -620,10 +588,9 @@ fn print_summary(manifest: &ProjectManifest, project_dir: &Path) {
     }
     println!();
     println!("  marker:    {}", project_dir.join(".henk.toml").display());
-    println!(
-        "  routing:   ~/.config/henk/dynamic/{}.yml",
-        manifest.slug
-    );
+    println!("  routing:   ~/.config/henk/dynamic/{}.yml", manifest.slug);
     println!();
-    println!("Next: bring up your project (e.g. `npm run dev`, `sail up`, `docker compose up -d`).");
+    println!(
+        "Next: bring up your project (e.g. `npm run dev`, `sail up`, `docker compose up -d`)."
+    );
 }

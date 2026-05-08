@@ -82,10 +82,7 @@ async fn ensure_conf_dir_directive(runner: &SystemRunner) -> Result<()> {
         return Ok(());
     }
 
-    let directive = format!(
-        "\n{marker}\nconf-dir={},*.conf\n",
-        dir.display()
-    );
+    let directive = format!("\n{marker}\nconf-dir={},*.conf\n", dir.display());
     let mut new_contents = existing;
     if !new_contents.ends_with('\n') {
         new_contents.push('\n');
@@ -93,15 +90,9 @@ async fn ensure_conf_dir_directive(runner: &SystemRunner) -> Result<()> {
     new_contents.push_str(&directive);
 
     let tmp = main_conf.with_extension("tmp");
-    fs::write(&tmp, &new_contents)
-        .with_context(|| format!("writing {}", tmp.display()))?;
-    fs::rename(&tmp, &main_conf).with_context(|| {
-        format!(
-            "renaming {} -> {}",
-            tmp.display(),
-            main_conf.display()
-        )
-    })?;
+    fs::write(&tmp, &new_contents).with_context(|| format!("writing {}", tmp.display()))?;
+    fs::rename(&tmp, &main_conf)
+        .with_context(|| format!("renaming {} -> {}", tmp.display(), main_conf.display()))?;
     Ok(())
 }
 
@@ -168,8 +159,7 @@ async fn write_drop_in(runner: &SystemRunner, tld: &str) -> Result<()> {
     let parent = path
         .parent()
         .context("dnsmasq config path must have a parent directory")?;
-    fs::create_dir_all(parent)
-        .with_context(|| format!("creating {}", parent.display()))?;
+    fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
 
     let desired = render(tld);
     if let Ok(existing) = fs::read_to_string(&path) {
@@ -212,8 +202,7 @@ async fn start_service(runner: &SystemRunner) -> Result<()> {
 pub async fn remove_drop_in(runner: &SystemRunner, tld: &str) -> Result<()> {
     let path = config_path(runner, tld).await?;
     if path.exists() {
-        fs::remove_file(&path)
-            .with_context(|| format!("removing {}", path.display()))?;
+        fs::remove_file(&path).with_context(|| format!("removing {}", path.display()))?;
     }
     Ok(())
 }

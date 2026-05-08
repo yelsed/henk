@@ -13,7 +13,10 @@ pub async fn probe(runner: &SystemRunner) -> DetectionItem {
             detail: "not found in $PATH (install Docker Desktop)".into(),
         };
     }
-    match runner.run("docker", ["info", "--format", "{{.ServerVersion}}"]).await {
+    match runner
+        .run("docker", ["info", "--format", "{{.ServerVersion}}"])
+        .await
+    {
         Ok(out) if out.ok() => {
             let version = out.first_line().unwrap_or("unknown").to_string();
             DetectionItem {
@@ -52,10 +55,7 @@ pub async fn probe_proxy_network(runner: &SystemRunner) -> DetectionItem {
         .await;
     match out {
         Ok(o) if o.ok() => {
-            let exists = o
-                .stdout
-                .lines()
-                .any(|l| l.trim() == PROXY_NETWORK);
+            let exists = o.stdout.lines().any(|l| l.trim() == PROXY_NETWORK);
             if exists {
                 DetectionItem {
                     name: "henk-proxy network",
@@ -94,7 +94,12 @@ pub async fn probe_foreign_traefik(runner: &SystemRunner) -> DetectionItem {
         .await;
     match out {
         Ok(o) if o.ok() => {
-            let names: Vec<&str> = o.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+            let names: Vec<&str> = o
+                .stdout
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect();
             if names.is_empty() {
                 DetectionItem {
                     name: "foreign Traefik",

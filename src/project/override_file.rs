@@ -116,10 +116,7 @@ pub fn render(members: &[ServiceMembership]) -> String {
 
 /// Write the override file for the given service memberships into
 /// `dir`, picking the canonical or fallback path automatically.
-pub fn write(
-    dir: &Path,
-    members: &[ServiceMembership],
-) -> Result<OverrideTarget> {
+pub fn write(dir: &Path, members: &[ServiceMembership]) -> Result<OverrideTarget> {
     let target = pick_target(dir);
     let path = match &target {
         OverrideTarget::Canonical(p) => p.clone(),
@@ -147,15 +144,17 @@ pub fn write(
 /// Delete the override file (used by `henk unlink`). Only deletes the
 /// file if it carries our header — never touches a foreign override.
 pub fn remove(dir: &Path) -> Result<()> {
-    for candidate in COMPOSE_OVERRIDE_NAMES.iter().chain(std::iter::once(&HENK_OVERRIDE_NAME)) {
+    for candidate in COMPOSE_OVERRIDE_NAMES
+        .iter()
+        .chain(std::iter::once(&HENK_OVERRIDE_NAME))
+    {
         let p = dir.join(candidate);
         if !p.exists() {
             continue;
         }
         let body = fs::read_to_string(&p).unwrap_or_default();
         if body.contains(HENK_FILE_HEADER) {
-            fs::remove_file(&p)
-                .with_context(|| format!("removing {}", p.display()))?;
+            fs::remove_file(&p).with_context(|| format!("removing {}", p.display()))?;
         }
     }
     Ok(())
@@ -198,7 +197,10 @@ mod tests {
         let dir = TempDir::new().unwrap();
         std::fs::write(dir.path().join("compose.override.yml"), "# user file").unwrap();
         match pick_target(dir.path()) {
-            OverrideTarget::Fallback { path, existing_canonical } => {
+            OverrideTarget::Fallback {
+                path,
+                existing_canonical,
+            } => {
                 assert_eq!(path.file_name().unwrap(), "henk.override.yml");
                 assert_eq!(
                     existing_canonical.file_name().unwrap(),

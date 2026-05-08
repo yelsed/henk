@@ -49,8 +49,8 @@ pub fn read(dir: &Path) -> Result<BTreeMap<String, String>> {
     }
     let env = dir.join(".env");
     if env.exists() {
-        let body = fs::read_to_string(&env)
-            .with_context(|| format!("reading {}", env.display()))?;
+        let body =
+            fs::read_to_string(&env).with_context(|| format!("reading {}", env.display()))?;
         return Ok(parse(&body));
     }
     Ok(BTreeMap::new())
@@ -65,8 +65,7 @@ pub fn read(dir: &Path) -> Result<BTreeMap<String, String>> {
 pub fn append_if_absent(dir: &Path, key: &str, value: &str) -> Result<bool> {
     let path = dir.join(".env");
     let existing = if path.exists() {
-        fs::read_to_string(&path)
-            .with_context(|| format!("reading {}", path.display()))?
+        fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?
     } else {
         String::new()
     };
@@ -85,8 +84,7 @@ pub fn append_if_absent(dir: &Path, key: &str, value: &str) -> Result<bool> {
     new_contents.push_str(&format!("{key}={value}\n"));
 
     let tmp = path.with_extension("tmp");
-    fs::write(&tmp, new_contents)
-        .with_context(|| format!("writing {}", tmp.display()))?;
+    fs::write(&tmp, new_contents).with_context(|| format!("writing {}", tmp.display()))?;
     fs::rename(&tmp, &path)
         .with_context(|| format!("renaming {} -> {}", tmp.display(), path.display()))?;
     Ok(true)

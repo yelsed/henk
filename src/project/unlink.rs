@@ -28,13 +28,9 @@ use crate::stack::{certs, paths};
 
 /// Run unlink against `project_dir`. `host` filters to a single host;
 /// `None` removes the whole project.
-pub async fn run(
-    runner: &SystemRunner,
-    project_dir: &Path,
-    host: Option<String>,
-) -> Result<()> {
-    let cfg = Config::load()?
-        .context("henk has not been initialised yet — nothing to unlink against")?;
+pub async fn run(runner: &SystemRunner, project_dir: &Path, host: Option<String>) -> Result<()> {
+    let cfg =
+        Config::load()?.context("henk has not been initialised yet — nothing to unlink against")?;
 
     let mut manifest = ProjectManifest::load(project_dir)?
         .context("this directory isn't linked — no `.henk.toml` to unlink")?;
@@ -52,8 +48,7 @@ pub async fn run(
             vec![h]
         }
         None => {
-            let drained: Vec<String> =
-                manifest.hosts.iter().map(|h| h.host.clone()).collect();
+            let drained: Vec<String> = manifest.hosts.iter().map(|h| h.host.clone()).collect();
             manifest.hosts.clear();
             drained
         }
@@ -84,7 +79,12 @@ pub async fn run(
         let _ = runner.run("docker", ["restart", "henk-traefik"]).await;
     }
 
-    print_summary(&manifest.slug, &removed_hosts, project_now_empty, project_dir);
+    print_summary(
+        &manifest.slug,
+        &removed_hosts,
+        project_now_empty,
+        project_dir,
+    );
     Ok(())
 }
 
@@ -101,8 +101,7 @@ fn remove_manifest_file(project_dir: &Path) -> Result<()> {
             path.display()
         );
     }
-    std::fs::remove_file(&path)
-        .with_context(|| format!("removing {}", path.display()))?;
+    std::fs::remove_file(&path).with_context(|| format!("removing {}", path.display()))?;
     Ok(())
 }
 
@@ -172,11 +171,7 @@ mod tests {
     fn remove_manifest_file_drops_when_header_present() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join(".henk.toml");
-        std::fs::write(
-            &path,
-            format!("{HENK_FILE_HEADER}\nslug = \"x\"\n"),
-        )
-        .unwrap();
+        std::fs::write(&path, format!("{HENK_FILE_HEADER}\nslug = \"x\"\n")).unwrap();
         remove_manifest_file(dir.path()).unwrap();
         assert!(!path.exists(), "henk-authored .henk.toml must be deleted");
     }
@@ -201,16 +196,12 @@ fn print_summary(slug: &str, removed: &[String], project_gone: bool, project_dir
         println!("  removed `.henk.toml`, the compose override (if we owned it),");
         println!("  and ~/.config/henk/dynamic/{slug}.yml.");
         println!();
-        println!(
-            "  If your `.env` carries an `APP_PORT=...` line we appended, drop it"
-        );
+        println!("  If your `.env` carries an `APP_PORT=...` line we appended, drop it");
         println!(
             "  manually — henk doesn't edit existing `.env` lines on unlink ({}).",
             project_dir.display()
         );
     } else {
-        println!(
-            "  remaining hosts re-rendered to ~/.config/henk/dynamic/{slug}.yml."
-        );
+        println!("  remaining hosts re-rendered to ~/.config/henk/dynamic/{slug}.yml.");
     }
 }

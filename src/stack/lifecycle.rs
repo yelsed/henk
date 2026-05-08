@@ -138,7 +138,11 @@ async fn require_ports_free(runner: &SystemRunner, cfg: &Config) -> Result<()> {
     let probes = [
         ("host TCP :80", cfg.ports.http, "http"),
         ("host TCP :443", cfg.ports.https, "https"),
-        ("loopback :dashboard", cfg.ports.dashboard, "Traefik dashboard"),
+        (
+            "loopback :dashboard",
+            cfg.ports.dashboard,
+            "Traefik dashboard",
+        ),
     ];
     let mut blockers = Vec::new();
     for (name, port, purpose) in probes {

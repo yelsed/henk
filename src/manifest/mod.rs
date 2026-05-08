@@ -132,8 +132,7 @@ impl StateManifest {
         if !p.exists() {
             return Ok(None);
         }
-        let raw = fs::read_to_string(&p)
-            .with_context(|| format!("reading {}", p.display()))?;
+        let raw = fs::read_to_string(&p).with_context(|| format!("reading {}", p.display()))?;
         let parsed: Self = serde_json::from_str(&raw)
             .with_context(|| format!("parsing {} as JSON", p.display()))?;
         Ok(Some(parsed))
@@ -164,8 +163,7 @@ impl StateManifest {
     pub fn save(&self) -> Result<()> {
         let p = path()?;
         if let Some(parent) = p.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("creating {}", parent.display()))?;
+            fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
         }
         let body = serde_json::to_string_pretty(self).context("serialising state.json")?;
         let tmp = p.with_extension("json.tmp");
@@ -268,8 +266,7 @@ impl StateManifest {
     pub fn delete() -> Result<()> {
         let p = path()?;
         if p.exists() {
-            fs::remove_file(&p)
-                .with_context(|| format!("removing {}", p.display()))?;
+            fs::remove_file(&p).with_context(|| format!("removing {}", p.display()))?;
         }
         Ok(())
     }
@@ -371,11 +368,7 @@ mod tests {
     fn mark_step_complete_records_metadata() {
         with_temp_home(|| {
             let mut s = StateManifest::load_or_init("test").unwrap();
-            s.mark_step_complete(
-                steps::BREW_MKCERT,
-                None,
-                Some(InstalledBy::Henk),
-            );
+            s.mark_step_complete(steps::BREW_MKCERT, None, Some(InstalledBy::Henk));
             s.save().unwrap();
             let loaded = StateManifest::load().unwrap().unwrap();
             let step = loaded.steps.get(steps::BREW_MKCERT).unwrap();

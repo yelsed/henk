@@ -124,18 +124,23 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
     match cli.command {
         None => default::run().await,
         Some(Command::Init { dry_run, tld, yes }) => init::run(dry_run, tld, yes).await,
-        Some(Command::Link { add, host, service, port }) => {
-            link::run(add, host, service, port).await
-        }
+        Some(Command::Link {
+            add,
+            host,
+            service,
+            port,
+        }) => link::run(add, host, service, port).await,
         Some(Command::Unlink { host }) => unlink::run(host).await,
         Some(Command::Status) => status::run().await,
         Some(Command::Up) => up::run().await,
         Some(Command::Down) => down::run().await,
         Some(Command::Doctor { repair }) => doctor::run(repair).await,
         Some(Command::Update { check }) => update::run(check).await,
-        Some(Command::Uninstall { deep, keep_config, yes }) => {
-            uninstall::run(deep, keep_config, yes).await
-        }
+        Some(Command::Uninstall {
+            deep,
+            keep_config,
+            yes,
+        }) => uninstall::run(deep, keep_config, yes).await,
         Some(Command::Dashboard) => dashboard::run().await,
     }
 }

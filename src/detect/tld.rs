@@ -43,11 +43,7 @@ impl TldChoice {
     }
 }
 
-pub fn decide(
-    user_override: Option<&str>,
-    valet_present: bool,
-    herd_present: bool,
-) -> TldChoice {
+pub fn decide(user_override: Option<&str>, valet_present: bool, herd_present: bool) -> TldChoice {
     if let Some(raw) = user_override {
         let cleaned = raw.trim_start_matches('.').to_ascii_lowercase();
         return TldChoice {

@@ -29,10 +29,7 @@ pub async fn run() -> Result<()> {
     };
 
     println!("  TLD:        .{}", cfg.tld);
-    println!(
-        "  HTTP/HTTPS: :{} / :{}",
-        cfg.ports.http, cfg.ports.https
-    );
+    println!("  HTTP/HTTPS: :{} / :{}", cfg.ports.http, cfg.ports.https);
     println!("  Dashboard:  http://localhost:{}", cfg.ports.dashboard);
     println!();
 
@@ -108,8 +105,8 @@ fn print_linked_projects(_cfg: &Config) -> Result<()> {
     }
 
     let mut entries: Vec<(String, Vec<String>)> = Vec::new();
-    for entry in std::fs::read_dir(&dyn_dir)
-        .with_context(|| format!("reading {}", dyn_dir.display()))?
+    for entry in
+        std::fs::read_dir(&dyn_dir).with_context(|| format!("reading {}", dyn_dir.display()))?
     {
         let entry = entry?;
         let path = entry.path();
@@ -148,9 +145,8 @@ fn print_linked_projects(_cfg: &Config) -> Result<()> {
 
 fn extract_hosts_from_yaml(body: &str) -> Vec<String> {
     use std::sync::LazyLock;
-    static RE: LazyLock<regex::Regex> = LazyLock::new(|| {
-        regex::Regex::new(r"Host\(`([^`]+)`\)").expect("static regex")
-    });
+    static RE: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(r"Host\(`([^`]+)`\)").expect("static regex"));
     RE.captures_iter(body)
         .filter_map(|c| c.get(1).map(|m| m.as_str().to_string()))
         .collect()
@@ -160,7 +156,13 @@ async fn container_running(runner: &SystemRunner, name: &str) -> bool {
     let out = runner
         .run(
             "docker",
-            ["ps", "--filter", &format!("name={name}"), "--format", "{{.Names}}"],
+            [
+                "ps",
+                "--filter",
+                &format!("name={name}"),
+                "--format",
+                "{{.Names}}",
+            ],
         )
         .await;
     matches!(out, Ok(o) if o.ok() && o.stdout.lines().any(|l| l.trim() == name))
@@ -202,7 +204,10 @@ fn read_cert_sans(path: &Path) -> Option<Vec<String>> {
     // Find `Subject Alternative Name:` then the line after it.
     let mut iter = text.lines();
     while let Some(line) = iter.next() {
-        if line.trim_start().starts_with("X509v3 Subject Alternative Name") {
+        if line
+            .trim_start()
+            .starts_with("X509v3 Subject Alternative Name")
+        {
             let next = iter.next()?.trim();
             return Some(
                 next.split(',')
@@ -225,9 +230,7 @@ fn read_cert_expiry(path: &Path) -> Option<String> {
         return None;
     }
     let text = String::from_utf8_lossy(&out.stdout);
-    text.trim()
-        .strip_prefix("notAfter=")
-        .map(|s| s.to_string())
+    text.trim().strip_prefix("notAfter=").map(|s| s.to_string())
 }
 
 #[cfg(test)]

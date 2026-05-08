@@ -49,9 +49,15 @@ pub fn render_all(cfg: &Config) -> Result<()> {
     fs::create_dir_all(traefik_dir.join("certs"))
         .with_context(|| format!("creating {}", traefik_dir.join("certs").display()))?;
 
-    write_if_changed(&paths::traefik_compose_path()?, &render(COMPOSE_TMPL, &vars))?;
+    write_if_changed(
+        &paths::traefik_compose_path()?,
+        &render(COMPOSE_TMPL, &vars),
+    )?;
     write_if_changed(&paths::traefik_static_path()?, &render(TRAEFIK_TMPL, &vars))?;
-    write_if_changed(&paths::traefik_dynamic_path()?, &render(DYNAMIC_TMPL, &vars))?;
+    write_if_changed(
+        &paths::traefik_dynamic_path()?,
+        &render(DYNAMIC_TMPL, &vars),
+    )?;
     // dnsmasq.conf is no longer rendered into the compose dir — dnsmasq runs
     // under Homebrew/launchd on the host (M3.5). See `stack/dnsmasq.rs`.
 
@@ -67,8 +73,7 @@ fn write_if_changed(path: &Path, contents: &str) -> Result<()> {
     let parent = path
         .parent()
         .context("template path must have a parent directory")?;
-    fs::create_dir_all(parent)
-        .with_context(|| format!("creating {}", parent.display()))?;
+    fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
     let tmp = path.with_extension("tmp");
     fs::write(&tmp, contents).with_context(|| format!("writing {}", tmp.display()))?;
     fs::rename(&tmp, path)
@@ -92,7 +97,10 @@ mod tests {
         assert!(rendered.contains("\"443:443\""));
         assert!(rendered.contains("127.0.0.1:19080:8080"));
         assert!(rendered.contains("name: henk-proxy"));
-        assert!(!rendered.contains("{{"), "no template residue: \n{rendered}");
+        assert!(
+            !rendered.contains("{{"),
+            "no template residue: \n{rendered}"
+        );
     }
 
     #[test]
@@ -102,7 +110,10 @@ mod tests {
         // dynamic.yml directly. See traefik.yml.tmpl comment for context.
         let rendered = render(TRAEFIK_TMPL, &vars_from(&cfg()));
         assert!(rendered.contains("file:"), "needs file provider");
-        assert!(!rendered.contains("docker:"), "must NOT enable docker provider");
+        assert!(
+            !rendered.contains("docker:"),
+            "must NOT enable docker provider"
+        );
         assert!(!rendered.contains("{{"));
     }
 

@@ -74,9 +74,7 @@ pub async fn run(deep: bool, keep_config: bool, auto_yes: bool) -> Result<()> {
     println!();
     println!("{}  henk has been uninstalled.", "✓".green().bold());
     if !deep {
-        println!(
-            "  Homebrew packages (mkcert, nss, dnsmasq) left in place. Re-run with `--deep`"
-        );
+        println!("  Homebrew packages (mkcert, nss, dnsmasq) left in place. Re-run with `--deep`");
         println!("  to remove the ones henk itself installed.");
     }
     Ok(())
@@ -180,10 +178,7 @@ pub(crate) fn classify_file_for_delete(path: &Path, body: Option<&str>) -> Delet
     }
 }
 
-async fn remove_resolver_file(
-    runner: &SystemRunner,
-    state: &Option<StateManifest>,
-) -> Result<()> {
+async fn remove_resolver_file(runner: &SystemRunner, state: &Option<StateManifest>) -> Result<()> {
     let path = state
         .as_ref()
         .and_then(|s| {
@@ -223,15 +218,14 @@ async fn remove_resolver_file(
     Ok(())
 }
 
-async fn remove_dnsmasq_dropin(
-    runner: &SystemRunner,
-    state: &Option<StateManifest>,
-) -> Result<()> {
+async fn remove_dnsmasq_dropin(runner: &SystemRunner, state: &Option<StateManifest>) -> Result<()> {
     let Some(state) = state else { return Ok(()) };
     let Some(step) = state.steps.get(crate::manifest::steps::DNSMASQ_DROPIN) else {
         return Ok(());
     };
-    let Some(path) = &step.path else { return Ok(()) };
+    let Some(path) = &step.path else {
+        return Ok(());
+    };
     let body = std::fs::read_to_string(path).ok();
     match classify_file_for_delete(path, body.as_deref()) {
         DeleteDecision::Absent => return Ok(()),
@@ -245,8 +239,7 @@ async fn remove_dnsmasq_dropin(
         }
         DeleteDecision::DeleteOurs => {}
     }
-    std::fs::remove_file(path)
-        .with_context(|| format!("removing {}", path.display()))?;
+    std::fs::remove_file(path).with_context(|| format!("removing {}", path.display()))?;
     println!("  ✓ removed {}", path.display());
 
     // Best-effort restart so the running dnsmasq drops the henk-tld
@@ -263,16 +256,12 @@ fn remove_config_dir() -> Result<()> {
     if !dir.exists() {
         return Ok(());
     }
-    std::fs::remove_dir_all(&dir)
-        .with_context(|| format!("removing {}", dir.display()))?;
+    std::fs::remove_dir_all(&dir).with_context(|| format!("removing {}", dir.display()))?;
     println!("  ✓ removed {}", dir.display());
     Ok(())
 }
 
-async fn uninstall_henk_brew_pkgs(
-    runner: &SystemRunner,
-    state: &StateManifest,
-) -> Result<()> {
+async fn uninstall_henk_brew_pkgs(runner: &SystemRunner, state: &StateManifest) -> Result<()> {
     let pkgs = state.brew_packages_we_installed();
     if pkgs.is_empty() {
         println!("  no packages to remove (state.json says nothing was henk-installed).");
@@ -310,11 +299,7 @@ mod tests {
     fn classify_returns_delete_ours_for_henk_authored() {
         let dir = TempDir::new().unwrap();
         let p = dir.path().join("ours");
-        std::fs::write(
-            &p,
-            format!("{HENK_FILE_HEADER}\nnameserver 127.0.0.1\n"),
-        )
-        .unwrap();
+        std::fs::write(&p, format!("{HENK_FILE_HEADER}\nnameserver 127.0.0.1\n")).unwrap();
         let body = std::fs::read_to_string(&p).unwrap();
         let res = classify_file_for_delete(&p, Some(&body));
         assert_eq!(res, DeleteDecision::DeleteOurs);

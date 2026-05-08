@@ -37,7 +37,7 @@ jobs:
           - target: aarch64-apple-darwin
             os: macos-latest
           - target: x86_64-apple-darwin
-            os: macos-13          # last Intel runner on GitHub-hosted
+            os: macos-latest      # cross-compile from arm64; all deps pure Rust
 
     steps:
       - uses: actions/checkout@v4

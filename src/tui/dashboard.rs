@@ -188,23 +188,19 @@ impl DashboardState {
 }
 
 fn cert_path_for(tld: &str) -> Option<PathBuf> {
-    paths::traefik_dir().ok().map(|p| {
-        p.join("certs").join(format!("_wildcard.{tld}.pem"))
-    })
+    paths::traefik_dir()
+        .ok()
+        .map(|p| p.join("certs").join(format!("_wildcard.{tld}.pem")))
 }
 
-fn render(
-    f: &mut ratatui::Frame,
-    state: &DashboardState,
-    list_state: &mut ListState,
-) {
+fn render(f: &mut ratatui::Frame, state: &DashboardState, list_state: &mut ListState) {
     let area = f.area();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // Title
-            Constraint::Min(8),     // Body
-            Constraint::Length(3),  // Footer
+            Constraint::Length(3), // Title
+            Constraint::Min(8),    // Body
+            Constraint::Length(3), // Footer
         ])
         .split(area);
 
@@ -227,7 +223,9 @@ fn render_title(f: &mut ratatui::Frame, state: &DashboardState, area: Rect) {
     let line = Line::from(vec![
         Span::styled(
             "henk dashboard",
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::raw(format!("  ·  .{}", state.tld)),
         Span::raw("  ·  stack: "),
@@ -346,10 +344,7 @@ fn render_project_detail(
             for h in &p.hosts {
                 lines.push(Line::from(vec![
                     Span::raw("  "),
-                    Span::styled(
-                        format!("https://{h}"),
-                        Style::default().fg(Color::Green),
-                    ),
+                    Span::styled(format!("https://{h}"), Style::default().fg(Color::Green)),
                 ]));
             }
             if !p.backends.is_empty() {
@@ -369,7 +364,9 @@ fn render_project_detail(
         }
     };
 
-    let p = Paragraph::new(lines).block(block).wrap(Wrap { trim: false });
+    let p = Paragraph::new(lines)
+        .block(block)
+        .wrap(Wrap { trim: false });
     f.render_widget(p, area);
 }
 
@@ -393,12 +390,7 @@ fn render_cert_panel(f: &mut ratatui::Frame, state: &DashboardState, area: Rect)
             ),
             Span::raw(format!("  ·  expires {exp}")),
         ]));
-        let preview: Vec<&str> = state
-            .cert_sans
-            .iter()
-            .take(8)
-            .map(String::as_str)
-            .collect();
+        let preview: Vec<&str> = state.cert_sans.iter().take(8).map(String::as_str).collect();
         let suffix = if state.cert_sans.len() > 8 {
             ", …"
         } else {
@@ -410,7 +402,9 @@ fn render_cert_panel(f: &mut ratatui::Frame, state: &DashboardState, area: Rect)
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .title(" Certificate ");
-    let p = Paragraph::new(lines).block(block).wrap(Wrap { trim: false });
+    let p = Paragraph::new(lines)
+        .block(block)
+        .wrap(Wrap { trim: false });
     f.render_widget(p, area);
 }
 
@@ -434,7 +428,13 @@ fn render_footer(f: &mut ratatui::Frame, area: Rect) {
 
 fn container_running(name: &str) -> bool {
     let out = Command::new("docker")
-        .args(["ps", "--filter", &format!("name={name}"), "--format", "{{.Names}}"])
+        .args([
+            "ps",
+            "--filter",
+            &format!("name={name}"),
+            "--format",
+            "{{.Names}}",
+        ])
         .output();
     matches!(out, Ok(o) if o.status.success() && String::from_utf8_lossy(&o.stdout).lines().any(|l| l.trim() == name))
 }
@@ -460,7 +460,10 @@ fn read_cert_sans(path: &std::path::Path) -> Option<Vec<String>> {
     let text = String::from_utf8_lossy(&out.stdout);
     let mut iter = text.lines();
     while let Some(line) = iter.next() {
-        if line.trim_start().starts_with("X509v3 Subject Alternative Name") {
+        if line
+            .trim_start()
+            .starts_with("X509v3 Subject Alternative Name")
+        {
             let next = iter.next()?.trim();
             return Some(
                 next.split(',')
@@ -527,10 +530,7 @@ fn parse_project_row(slug: String, body: &str) -> ProjectRow {
         .captures_iter(body)
         .filter_map(|c| c.get(1).map(|m| m.as_str().to_string()))
         .collect();
-    let mode = if backends
-        .iter()
-        .any(|u| u.contains("host.docker.internal"))
-    {
+    let mode = if backends.iter().any(|u| u.contains("host.docker.internal")) {
         "host".to_string()
     } else {
         "docker".to_string()
@@ -677,7 +677,10 @@ http:
         assert_eq!(row.slug, "spatiebalk");
         assert_eq!(
             row.hosts,
-            vec!["spatiebalk.test".to_string(), "vite.spatiebalk.test".to_string()]
+            vec![
+                "spatiebalk.test".to_string(),
+                "vite.spatiebalk.test".to_string()
+            ]
         );
         assert_eq!(row.backends.len(), 2);
         assert_eq!(row.mode, "docker");
@@ -709,7 +712,9 @@ http:
 
         let backend = TestBackend::new(120, 30);
         let mut terminal = Terminal::new(backend).unwrap();
-        terminal.draw(|f| render(f, &state, &mut list_state)).unwrap();
+        terminal
+            .draw(|f| render(f, &state, &mut list_state))
+            .unwrap();
 
         let buf = terminal.backend().buffer().clone();
         let dump: String = buf.content().iter().map(|c| c.symbol()).collect();
@@ -739,7 +744,9 @@ http:
 
         let backend = TestBackend::new(100, 25);
         let mut terminal = Terminal::new(backend).unwrap();
-        terminal.draw(|f| render(f, &state, &mut list_state)).unwrap();
+        terminal
+            .draw(|f| render(f, &state, &mut list_state))
+            .unwrap();
         let dump: String = terminal
             .backend()
             .buffer()

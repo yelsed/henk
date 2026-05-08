@@ -8,9 +8,7 @@ pub async fn run() -> Result<()> {
     let runner = SystemRunner::new();
     let cfg = match Config::load()? {
         Some(c) => c,
-        None => bail!(
-            "henk has not been initialised yet. Run `henk init` first."
-        ),
+        None => bail!("henk has not been initialised yet. Run `henk init` first."),
     };
     lifecycle::up(&runner, &cfg).await
 }

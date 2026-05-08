@@ -50,7 +50,8 @@ pub fn analyze(
 
     if detection.vite_detected || vite_host_added.is_some() {
         out.extend(check_vite_config(project_dir, default_host));
-        if vite_host_added.is_some() && project_dir.join("vendor").join("bin").join("sail").exists() {
+        if vite_host_added.is_some() && project_dir.join("vendor").join("bin").join("sail").exists()
+        {
             out.extend(check_sail_vite_port_collision(env.as_deref()));
         }
     }
@@ -91,12 +92,11 @@ fn check_vite_config(project_dir: &Path, default_host: &str) -> Vec<Issue> {
         out.push(Issue {
             severity: Severity::High,
             title: "Vite v7 CORS will block cross-subdomain module loads".into(),
-            explain:
-                "Vite v7 sets Access-Control-Allow-Origin to its own \
+            explain: "Vite v7 sets Access-Control-Allow-Origin to its own \
                  `origin`, not the requesting page's. Module imports from \
                  the app host get blocked, leaving a blank page even \
                  though the assets are reachable."
-                    .into(),
+                .into(),
             fix_target: format!("edit {}", path.display()),
             snippet: format!(
                 "// inside `server: {{ ... }}`\ncors: {{ origin: 'https://{default_host}' }},"
@@ -117,7 +117,12 @@ fn check_sail_vite_port_collision(env_body: Option<&str>) -> Vec<Issue> {
             });
             match line {
                 Some(l) => {
-                    let val = l.split('=').nth(1).unwrap_or("5173").trim().trim_matches('"');
+                    let val = l
+                        .split('=')
+                        .nth(1)
+                        .unwrap_or("5173")
+                        .trim()
+                        .trim_matches('"');
                     val == "5173"
                 }
                 None => true, // unset → defaults to 5173
@@ -129,12 +134,11 @@ fn check_sail_vite_port_collision(env_body: Option<&str>) -> Vec<Issue> {
         out.push(Issue {
             severity: Severity::Medium,
             title: "Sail's compose publishes :5173 — Vite on host can't bind it".into(),
-            explain:
-                "docker-proxy reserves the host port even when the \
+            explain: "docker-proxy reserves the host port even when the \
                  container has no Vite process inside. Run Vite on the \
                  host (the conventional Sail flow) by giving Sail a \
                  different port to publish."
-                    .into(),
+                .into(),
             fix_target: "append to .env".into(),
             snippet: "VITE_PORT=15173".into(),
         });
@@ -153,33 +157,30 @@ fn check_nuxt_devserver(project_dir: &Path) -> Vec<Issue> {
     vec![Issue {
         severity: Severity::High,
         title: "Nuxt likely binds [::1] only — host mode will 502".into(),
-        explain:
-            "Nuxt's default dev server binds the IPv6 loopback. \
+        explain: "Nuxt's default dev server binds the IPv6 loopback. \
              host.docker.internal only sees ports on the IPv4 wildcard, \
              so the Traefik container can't reach it. Set `devServer.host` \
              explicitly."
-                .into(),
+            .into(),
         fix_target: format!("edit {}", path.display()),
         snippet: "devServer: { host: '0.0.0.0', port: 3000 }".into(),
     }]
 }
 
-fn check_dev_script_bind_flag(
-    pkg_body: Option<&str>,
-    project_dir: &Path,
-) -> Vec<Issue> {
+fn check_dev_script_bind_flag(pkg_body: Option<&str>, project_dir: &Path) -> Vec<Issue> {
     // Skip when nuxt.config sets devServer — that supersedes the CLI flag.
     if let Some((_, body)) = read_nuxt_config(project_dir) {
         if body.to_ascii_lowercase().contains("devserver") {
             return Vec::new();
         }
     }
-    let Some(body) = pkg_body else { return Vec::new() };
+    let Some(body) = pkg_body else {
+        return Vec::new();
+    };
     // Extract `"dev": "..."` value, regardless of pretty-printing or not.
     use std::sync::LazyLock;
-    static RE: LazyLock<regex::Regex> = LazyLock::new(|| {
-        regex::Regex::new(r#""dev"\s*:\s*"([^"]+)""#).expect("static regex")
-    });
+    static RE: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(r#""dev"\s*:\s*"([^"]+)""#).expect("static regex"));
     let dev_script = RE
         .captures(body)
         .and_then(|c| c.get(1).map(|m| m.as_str().to_string()))
@@ -193,11 +194,10 @@ fn check_dev_script_bind_flag(
     vec![Issue {
         severity: Severity::Medium,
         title: "`npm run dev` doesn't pass --host 0.0.0.0".into(),
-        explain:
-            "Without it, the dev server may bind localhost only and \
+        explain: "Without it, the dev server may bind localhost only and \
              host-mode routing fails. Either edit the script or set \
              devServer/host in the framework config."
-                .into(),
+            .into(),
         fix_target: "package.json scripts.dev".into(),
         snippet: "\"dev\": \"<existing-runner> --host 0.0.0.0 --port 3000\"".into(),
     }]
@@ -308,7 +308,12 @@ mod tests {
             "export default defineConfig({ plugins: [] });",
         )
         .unwrap();
-        let issues = analyze(dir.path(), &docker_vite_detection(), "spatiebalk.test", None);
+        let issues = analyze(
+            dir.path(),
+            &docker_vite_detection(),
+            "spatiebalk.test",
+            None,
+        );
         assert!(issues.iter().any(|i| i.title.contains("binding 127.0.0.1")));
         assert!(issues.iter().any(|i| i.title.contains("CORS")));
     }
@@ -321,7 +326,12 @@ mod tests {
             "export default defineConfig({ server: { host: '0.0.0.0' } });",
         )
         .unwrap();
-        let issues = analyze(dir.path(), &docker_vite_detection(), "spatiebalk.test", None);
+        let issues = analyze(
+            dir.path(),
+            &docker_vite_detection(),
+            "spatiebalk.test",
+            None,
+        );
         assert!(!issues.iter().any(|i| i.title.contains("binding 127.0.0.1")));
         assert!(issues.iter().any(|i| i.title.contains("CORS")));
     }
@@ -354,7 +364,11 @@ mod tests {
     fn sail_vite_port_default_flagged() {
         let dir = TempDir::new().unwrap();
         std::fs::create_dir_all(dir.path().join("vendor").join("bin")).unwrap();
-        std::fs::write(dir.path().join("vendor").join("bin").join("sail"), "#!/bin/sh\n").unwrap();
+        std::fs::write(
+            dir.path().join("vendor").join("bin").join("sail"),
+            "#!/bin/sh\n",
+        )
+        .unwrap();
         std::fs::write(
             dir.path().join("vite.config.js"),
             "export default defineConfig({ server: { host: '0.0.0.0', cors: { origin: 'x' } } });",
@@ -367,7 +381,11 @@ mod tests {
             "spatiebalk.test",
             Some("vite.spatiebalk.test"),
         );
-        assert!(issues.iter().any(|i| i.title.contains("Sail's compose publishes :5173")));
+        assert!(
+            issues
+                .iter()
+                .any(|i| i.title.contains("Sail's compose publishes :5173"))
+        );
     }
 
     #[test]
@@ -387,7 +405,11 @@ mod tests {
             "spatiebalk.test",
             Some("vite.spatiebalk.test"),
         );
-        assert!(!issues.iter().any(|i| i.title.contains("Sail's compose publishes :5173")));
+        assert!(
+            !issues
+                .iter()
+                .any(|i| i.title.contains("Sail's compose publishes :5173"))
+        );
     }
 
     #[test]

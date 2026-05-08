@@ -85,10 +85,7 @@ impl DetectionReport {
                     .bold()
             );
         } else {
-            println!(
-                "{}",
-                "No blockers — `henk init` is ready to run.".green()
-            );
+            println!("{}", "No blockers — `henk init` is ready to run.".green());
         }
         println!();
     }
@@ -97,10 +94,7 @@ impl DetectionReport {
 /// Run the full detection suite. `tld_override` is `Some` when the user
 /// passed `--tld <foo>`, in which case we still record findings but don't
 /// derive the TLD ourselves.
-pub async fn run_all(
-    runner: &SystemRunner,
-    tld_override: Option<&str>,
-) -> Result<DetectionReport> {
+pub async fn run_all(runner: &SystemRunner, tld_override: Option<&str>) -> Result<DetectionReport> {
     let mut items = Vec::new();
 
     // Prerequisites.

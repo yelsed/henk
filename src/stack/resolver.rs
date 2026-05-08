@@ -82,9 +82,9 @@ pub async fn ensure_written(runner: &SystemRunner, tld: &str) -> Result<()> {
 pub async fn ensure_removed(runner: &SystemRunner, tld: &str) -> Result<()> {
     match status(tld) {
         ResolverStatus::Missing => Ok(()),
-        ResolverStatus::Foreign => bail!(
-            "/etc/resolver/{tld} exists but is not managed by henk; not removing"
-        ),
+        ResolverStatus::Foreign => {
+            bail!("/etc/resolver/{tld} exists but is not managed by henk; not removing")
+        }
         ResolverStatus::Ours => {
             let path = resolver_path(tld);
             let path_str = path.to_str().context("resolver path must be UTF-8")?;
@@ -105,11 +105,7 @@ pub async fn ensure_removed(runner: &SystemRunner, tld: &str) -> Result<()> {
     }
 }
 
-async fn install_with_sudo(
-    runner: &SystemRunner,
-    tld: &str,
-    contents: &str,
-) -> Result<()> {
+async fn install_with_sudo(runner: &SystemRunner, tld: &str, contents: &str) -> Result<()> {
     let target = resolver_path(tld);
     let target_str = target.to_str().context("resolver path must be UTF-8")?;
 
@@ -123,16 +119,7 @@ async fn install_with_sudo(
     // `install` creates intermediate directories if needed (we add `-D`).
     // Mode 0644 matches Valet's resolver-file permissions.
     let out = runner
-        .run(
-            "sudo",
-            [
-                "install",
-                "-d",
-                "-m",
-                "0755",
-                "/etc/resolver",
-            ],
-        )
+        .run("sudo", ["install", "-d", "-m", "0755", "/etc/resolver"])
         .await
         .context("sudo install -d /etc/resolver")?;
     if !out.ok() {
@@ -145,10 +132,7 @@ async fn install_with_sudo(
     }
 
     let out = runner
-        .run(
-            "sudo",
-            ["install", "-m", "0644", tmp_str, target_str],
-        )
+        .run("sudo", ["install", "-m", "0644", tmp_str, target_str])
         .await
         .context("sudo install /tmp/<...> /etc/resolver/<tld>")?;
     let _ = fs::remove_file(&tmp);

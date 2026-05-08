@@ -98,10 +98,9 @@ async fn execute_init(
     // performed in one go. Per-step granularity inside lifecycle is a
     // future refit when `doctor --repair` needs to retry individual
     // failures rather than the whole bundle.
-    let cert_path = paths::traefik_dir().ok().map(|p| {
-        p.join("certs")
-            .join(format!("_wildcard.{}.pem", cfg.tld))
-    });
+    let cert_path = paths::traefik_dir()
+        .ok()
+        .map(|p| p.join("certs").join(format!("_wildcard.{}.pem", cfg.tld)));
     let resolver_path = std::path::PathBuf::from(format!("/etc/resolver/{}", cfg.tld));
     let dropin_path = brew_dnsmasq_dropin_path(runner, &cfg.tld).await;
 
@@ -356,7 +355,11 @@ async fn maybe_already_initialized(runner: &SystemRunner, cfg: &Config) -> Optio
     print_section("Already initialised");
     println!("  {}  cert         {}", "✓".green(), cert.display());
     println!("  {}  resolver     {}", "✓".green(), resolver.display());
-    println!("  {}  dnsmasq      {}", "✓".green(), dnsmasq_drop_in.display());
+    println!(
+        "  {}  dnsmasq      {}",
+        "✓".green(),
+        dnsmasq_drop_in.display()
+    );
     println!();
 
     // Backfill state.json on first re-run after M7 lands. Pre-M7 installs
@@ -369,9 +372,7 @@ async fn maybe_already_initialized(runner: &SystemRunner, cfg: &Config) -> Optio
         eprintln!("  ! could not backfill state.json: {e}");
     }
     println!("  Re-running init would only re-render templates and bring the stack up.");
-    println!(
-        "  Tip: `henk up` brings the stack up; `henk doctor --repair` (M7) fixes drift."
-    );
+    println!("  Tip: `henk up` brings the stack up; `henk doctor --repair` (M7) fixes drift.");
 
     let bring_up = confirm("Bring the global stack up now?", true).ok()?;
     if bring_up {
@@ -387,12 +388,7 @@ async fn maybe_already_initialized(runner: &SystemRunner, cfg: &Config) -> Optio
 /// Build a `state.json` for an already-up host that predates state
 /// tracking. Idempotent: re-running on a host with state.json is a
 /// no-op.
-fn backfill_state(
-    cfg: &Config,
-    cert: &Path,
-    resolver: &Path,
-    dnsmasq_dropin: &Path,
-) -> Result<()> {
+fn backfill_state(cfg: &Config, cert: &Path, resolver: &Path, dnsmasq_dropin: &Path) -> Result<()> {
     if StateManifest::is_present() {
         return Ok(());
     }
@@ -403,21 +399,13 @@ fn backfill_state(
     state.mark_step_complete(steps::BREW_NSS, None, Some(InstalledBy::Preexisting));
     state.mark_step_complete(steps::BREW_DNSMASQ, None, Some(InstalledBy::Preexisting));
     state.mark_step_complete(steps::MKCERT_CA, None, None);
-    state.mark_step_complete(
-        steps::WILDCARD_CERT,
-        Some(cert.to_path_buf()),
-        None,
-    );
+    state.mark_step_complete(steps::WILDCARD_CERT, Some(cert.to_path_buf()), None);
     state.mark_step_complete(
         steps::DNSMASQ_DROPIN,
         Some(dnsmasq_dropin.to_path_buf()),
         None,
     );
-    state.mark_step_complete(
-        steps::RESOLVER_FILE,
-        Some(resolver.to_path_buf()),
-        None,
-    );
+    state.mark_step_complete(steps::RESOLVER_FILE, Some(resolver.to_path_buf()), None);
     state.mark_step_complete(steps::STACK_RENDERED, None, None);
     state.mark_step_complete(steps::STACK_UP, None, None);
     state.save()
@@ -443,10 +431,7 @@ fn print_completion_summary(cfg: &Config) {
     println!();
     println!("  {}  henk is up.", "✓".green().bold());
     println!();
-    println!(
-        "  Dashboard:  https://traefik.{tld}",
-        tld = cfg.tld
-    );
+    println!("  Dashboard:  https://traefik.{tld}", tld = cfg.tld);
     println!(
         "              http://localhost:{port}",
         port = cfg.ports.dashboard

@@ -15,7 +15,9 @@ use crate::stack::paths;
 
 /// Path to the file-provider YAML for `slug`.
 pub fn entry_path(slug: &str) -> Result<PathBuf> {
-    Ok(paths::config_dir()?.join("dynamic").join(format!("{slug}.yml")))
+    Ok(paths::config_dir()?
+        .join("dynamic")
+        .join(format!("{slug}.yml")))
 }
 
 /// Render and write the file-provider YAML for the given manifest.
@@ -23,9 +25,10 @@ pub fn entry_path(slug: &str) -> Result<PathBuf> {
 /// already on disk).
 pub fn write(manifest: &ProjectManifest) -> Result<()> {
     let path = entry_path(&manifest.slug)?;
-    let parent = path.parent().context("dynamic dir path must have a parent")?;
-    fs::create_dir_all(parent)
-        .with_context(|| format!("creating {}", parent.display()))?;
+    let parent = path
+        .parent()
+        .context("dynamic dir path must have a parent")?;
+    fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
 
     let body = render(manifest);
     if let Ok(existing) = fs::read_to_string(&path) {
@@ -44,8 +47,7 @@ pub fn write(manifest: &ProjectManifest) -> Result<()> {
 pub fn remove(slug: &str) -> Result<()> {
     let path = entry_path(slug)?;
     if path.exists() {
-        fs::remove_file(&path)
-            .with_context(|| format!("removing {}", path.display()))?;
+        fs::remove_file(&path).with_context(|| format!("removing {}", path.display()))?;
     }
     Ok(())
 }

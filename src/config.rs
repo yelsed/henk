@@ -58,8 +58,8 @@ impl Config {
         if !p.exists() {
             return Ok(None);
         }
-        let contents = fs::read_to_string(&p)
-            .with_context(|| format!("reading {}", p.display()))?;
+        let contents =
+            fs::read_to_string(&p).with_context(|| format!("reading {}", p.display()))?;
         let cfg: Config = toml::from_str(&contents)
             .with_context(|| format!("parsing {} as TOML", p.display()))?;
         Ok(Some(cfg))
@@ -69,8 +69,7 @@ impl Config {
     pub fn save(&self) -> Result<()> {
         let p = path()?;
         if let Some(parent) = p.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("creating {}", parent.display()))?;
+            fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
         }
         let body = toml::to_string_pretty(self).context("serialising config")?;
         let header = format!(

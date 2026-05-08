@@ -66,16 +66,10 @@ pub async fn run(check: bool) -> Result<()> {
                     "  {}  A newer version of henk is available.",
                     "↑".bright_green()
                 );
-                println!(
-                    "  Run {} to install it.",
-                    "henk update".bold()
-                );
+                println!("  Run {} to install it.", "henk update".bold());
             }
             Ok(false) => {
-                println!(
-                    "  {}  henk is up to date.",
-                    "✓".bright_green()
-                );
+                println!("  {}  henk is up to date.", "✓".bright_green());
             }
             Err(e) => {
                 println!(
@@ -84,9 +78,7 @@ pub async fn run(check: bool) -> Result<()> {
                     e
                 );
                 println!();
-                println!(
-                    "  Check https://github.com/fivespark/henk/releases manually."
-                );
+                println!("  Check https://github.com/fivespark/henk/releases manually.");
             }
         }
         println!();
@@ -105,10 +97,7 @@ pub async fn run(check: bool) -> Result<()> {
             );
         }
         Ok(None) => {
-            println!(
-                "  {}  Already on the latest version.",
-                "✓".bright_green()
-            );
+            println!("  {}  Already on the latest version.", "✓".bright_green());
         }
         Err(e) => {
             // Surface the error but don't hard-fail — the user can still
@@ -117,15 +106,9 @@ pub async fn run(check: bool) -> Result<()> {
                 state.audit("henk update (failed)", 1);
                 state.save()?;
             }
-            println!(
-                "  {}  Update failed: {}",
-                "✗".bright_red(),
-                e
-            );
+            println!("  {}  Update failed: {}", "✗".bright_red(), e);
             println!();
-            println!(
-                "  Download manually from https://github.com/fivespark/henk/releases"
-            );
+            println!("  Download manually from https://github.com/fivespark/henk/releases");
         }
     }
 

@@ -75,7 +75,9 @@ impl ComposeService {
     /// (`networks: { sail: {}, app: { aliases: [...] } }`). Used by
     /// `henk link` to preserve existing networks in the override.
     pub fn network_names(&self) -> Vec<String> {
-        let Some(raw) = &self.networks else { return Vec::new(); };
+        let Some(raw) = &self.networks else {
+            return Vec::new();
+        };
         match raw {
             serde_yaml_ng::Value::Sequence(seq) => seq
                 .iter()
@@ -163,9 +165,8 @@ fn expand_shell_defaults(s: &str) -> String {
     // ${VAR:-DEFAULT}  →  DEFAULT
     // Anchored to the literal `:-` so we don't catch other `${...}` forms.
     use std::sync::LazyLock;
-    static RE: LazyLock<regex::Regex> = LazyLock::new(|| {
-        regex::Regex::new(r"\$\{[^}]*:-([^}]+)\}").expect("static regex")
-    });
+    static RE: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(r"\$\{[^}]*:-([^}]+)\}").expect("static regex"));
     RE.replace_all(s, "$1").into_owned()
 }
 
@@ -173,7 +174,12 @@ fn expand_shell_defaults(s: &str) -> String {
 /// order: `compose.yaml`, `compose.yml`, `docker-compose.yaml`,
 /// `docker-compose.yml`.
 pub fn find_compose_path(dir: &Path) -> Option<PathBuf> {
-    for name in ["compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml"] {
+    for name in [
+        "compose.yaml",
+        "compose.yml",
+        "docker-compose.yaml",
+        "docker-compose.yml",
+    ] {
         let p = dir.join(name);
         if p.exists() {
             return Some(p);
@@ -184,8 +190,7 @@ pub fn find_compose_path(dir: &Path) -> Option<PathBuf> {
 
 /// Parse a compose file from disk.
 pub fn read(path: &Path) -> Result<ComposeFile> {
-    let body = fs::read_to_string(path)
-        .with_context(|| format!("reading {}", path.display()))?;
+    let body = fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let cf: ComposeFile = serde_yaml_ng::from_str(&body)
         .with_context(|| format!("parsing {} as compose YAML", path.display()))?;
     Ok(cf)
@@ -219,8 +224,20 @@ services:
         let app = &cf.services["laravel.test"];
         let ports = app.published_ports();
         assert_eq!(ports.len(), 3);
-        assert_eq!(ports[0], PublishedPort { host: 80, container: 80 });
-        assert_eq!(ports[1], PublishedPort { host: 5173, container: 5173 });
+        assert_eq!(
+            ports[0],
+            PublishedPort {
+                host: 80,
+                container: 80
+            }
+        );
+        assert_eq!(
+            ports[1],
+            PublishedPort {
+                host: 5173,
+                container: 5173
+            }
+        );
 
         // Datastore filter
         assert!(!app.looks_like_datastore("laravel.test"));
@@ -239,7 +256,13 @@ services:
 "#;
         let cf: ComposeFile = serde_yaml_ng::from_str(yaml).unwrap();
         let ports = cf.services["web"].published_ports();
-        assert_eq!(ports[0], PublishedPort { host: 8080, container: 80 });
+        assert_eq!(
+            ports[0],
+            PublishedPort {
+                host: 8080,
+                container: 80
+            }
+        );
     }
 
     #[test]
@@ -253,7 +276,13 @@ services:
 "#;
         let cf: ComposeFile = serde_yaml_ng::from_str(yaml).unwrap();
         let ports = cf.services["web"].published_ports();
-        assert_eq!(ports[0], PublishedPort { host: 8080, container: 80 });
+        assert_eq!(
+            ports[0],
+            PublishedPort {
+                host: 8080,
+                container: 80
+            }
+        );
     }
 
     #[test]

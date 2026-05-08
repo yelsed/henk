@@ -154,7 +154,10 @@ fn rationale_for(
     p: &PublishedPort,
     _services: &std::collections::BTreeMap<String, ComposeService>,
 ) -> String {
-    format!("`{name}` publishes :{} (container :{})", p.host, p.container)
+    format!(
+        "`{name}` publishes :{} (container :{})",
+        p.host, p.container
+    )
 }
 
 /// Extract the port number from `.env` URL-shaped values:
@@ -276,7 +279,10 @@ mod tests {
     #[test]
     fn defaults_host_to_slug_when_no_test_url() {
         let env = BTreeMap::new();
-        assert_eq!(default_host_for(&env, "spatiebalk", "test"), "spatiebalk.test");
+        assert_eq!(
+            default_host_for(&env, "spatiebalk", "test"),
+            "spatiebalk.test"
+        );
     }
 
     #[test]

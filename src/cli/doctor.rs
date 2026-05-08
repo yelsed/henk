@@ -38,9 +38,7 @@ pub async fn run(repair: bool) -> Result<()> {
             "  {}  state.json is missing — `henk init` predates state tracking,",
             "·".bright_black()
         );
-        println!(
-            "  or you initialised on a clone before M7. Re-run `henk init` to backfill"
-        );
+        println!("  or you initialised on a clone before M7. Re-run `henk init` to backfill");
         println!("  the manifest; doctor stops here without it.");
         println!();
         return Ok(());
@@ -96,11 +94,9 @@ fn print_state_summary(state: &StateManifest) {
             Some(s) => match s.state {
                 StepState::Complete => "✓ complete".green().to_string(),
                 StepState::Pending => "· pending".bright_black().to_string(),
-                StepState::Failed => format!(
-                    "{} {}",
-                    "✗ failed".red(),
-                    s.error.as_deref().unwrap_or("")
-                ),
+                StepState::Failed => {
+                    format!("{} {}", "✗ failed".red(), s.error.as_deref().unwrap_or(""))
+                }
                 StepState::Skipped => "○ skipped".bright_black().to_string(),
             },
             None => "· unrecorded".bright_black().to_string(),
@@ -190,10 +186,7 @@ mod tests {
         // Drift may still flag a missing compose file (we didn't render
         // templates here), so allow that one.
         for d in &drift {
-            assert!(
-                d.contains("compose file"),
-                "unexpected drift entry: {d}"
-            );
+            assert!(d.contains("compose file"), "unexpected drift entry: {d}");
         }
     }
 

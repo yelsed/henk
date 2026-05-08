@@ -9,6 +9,5 @@ use anyhow::{Context, Result};
 
 pub async fn run() -> Result<()> {
     let join = tokio::task::spawn_blocking(crate::tui::dashboard::run);
-    join.await
-        .context("dashboard task panicked")?
+    join.await.context("dashboard task panicked")?
 }
