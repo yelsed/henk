@@ -62,13 +62,12 @@ fn init_dry_run_renders_detection_table() {
 // docs/architecture.md, not by an automated CLI test.
 
 #[test]
-fn unimplemented_subcommands_bail() {
-    // Removed as each milestone lands them: up/down (M2/M3), link (M4).
-    for sub in ["doctor", "update", "uninstall"] {
-        henk()
-            .arg(sub)
-            .assert()
-            .failure()
-            .stderr(predicate::str::contains("not yet implemented"));
-    }
+fn update_check_prints_release_pointer() {
+    // `henk update --check` is read-only and works without an
+    // initialised stack, so it's safe to assert against in CI.
+    henk()
+        .args(["update", "--check"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Self-update"));
 }

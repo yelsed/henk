@@ -21,6 +21,7 @@ use std::path::Path;
 
 use crate::config::Config;
 use crate::detect::{self, DetectionReport, Status, TldReason};
+use crate::manifest::{InstalledBy, StateManifest, steps};
 use crate::runner::SystemRunner;
 use crate::stack::lifecycle;
 use crate::stack::paths;
@@ -55,16 +56,81 @@ pub async fn run(dry_run: bool, tld: Option<String>, yes: bool) -> Result<()> {
         return Ok(());
     }
 
-    install_missing_brew_packages(&runner, &report, yes).await?;
-    print_section("Privileged steps");
-    explain_sudo_usage(&cfg);
-    prime_sudo(&runner).await?;
+    let mut state = StateManifest::load_or_init(&cfg.tld)?;
+    state.open_init_run();
+    seed_preexisting_brew_attribution(&mut state, &report);
+    state.save()?;
 
-    print_section("Executing");
-    lifecycle::init_full(&runner, &cfg).await?;
+    let exec_result = execute_init(&runner, &cfg, &report, yes, &mut state).await;
+    match &exec_result {
+        Ok(()) => state.close_init_run("success"),
+        Err(_) => state.close_init_run("failed"),
+    }
+    state.save()?;
+    exec_result?;
 
     print_completion_summary(&cfg);
     Ok(())
+}
+
+/// All the privileged + filesystem-mutating work, factored out so the
+/// state manifest's `init_runs` entry can be closed regardless of which
+/// step failed. Each successful step writes itself into `state.steps`
+/// before continuing — so a partial run produces an actionable manifest
+/// that `henk doctor --repair` (and `henk uninstall`) can read.
+async fn execute_init(
+    runner: &SystemRunner,
+    cfg: &Config,
+    report: &DetectionReport,
+    auto_yes: bool,
+    state: &mut StateManifest,
+) -> Result<()> {
+    install_missing_brew_packages(runner, report, auto_yes, state).await?;
+
+    print_section("Privileged steps");
+    explain_sudo_usage(cfg);
+    prime_sudo(runner, state).await?;
+
+    print_section("Executing");
+    lifecycle::init_full(runner, cfg).await?;
+
+    // init_full bundles all the inner work; record the steps it
+    // performed in one go. Per-step granularity inside lifecycle is a
+    // future refit when `doctor --repair` needs to retry individual
+    // failures rather than the whole bundle.
+    let cert_path = paths::traefik_dir().ok().map(|p| {
+        p.join("certs")
+            .join(format!("_wildcard.{}.pem", cfg.tld))
+    });
+    let resolver_path = std::path::PathBuf::from(format!("/etc/resolver/{}", cfg.tld));
+    let dropin_path = brew_dnsmasq_dropin_path(runner, &cfg.tld).await;
+
+    state.mark_step_complete(steps::MKCERT_CA, None, None);
+    state.mark_step_complete(steps::WILDCARD_CERT, cert_path, None);
+    state.mark_step_complete(steps::DNSMASQ_DROPIN, dropin_path, None);
+    state.mark_step_complete(steps::RESOLVER_FILE, Some(resolver_path), None);
+    state.mark_step_complete(steps::STACK_RENDERED, None, None);
+    state.mark_step_complete(steps::STACK_UP, None, None);
+    state.save()?;
+
+    Ok(())
+}
+
+/// For each brew package detection saw as already-installed, record
+/// `installed_by = Preexisting` so `henk uninstall --deep` knows it
+/// must NOT touch them.
+fn seed_preexisting_brew_attribution(state: &mut StateManifest, report: &DetectionReport) {
+    for item in &report.items {
+        let key = match item.name {
+            "mkcert" => steps::BREW_MKCERT,
+            "nss" => steps::BREW_NSS,
+            "dnsmasq" => steps::BREW_DNSMASQ,
+            _ => continue,
+        };
+        if item.status == Status::Ok && !state.steps.contains_key(key) {
+            state.mark_step_complete(key, None, Some(InstalledBy::Preexisting));
+        }
+    }
 }
 
 fn print_wizard_header() {
@@ -188,6 +254,7 @@ async fn install_missing_brew_packages(
     runner: &SystemRunner,
     report: &DetectionReport,
     auto_yes: bool,
+    state: &mut StateManifest,
 ) -> Result<()> {
     let missing = missing_brew_pkgs(report);
     if missing.is_empty() {
@@ -205,21 +272,39 @@ async fn install_missing_brew_packages(
             .run_inherit("brew", ["install", pkg])
             .await
             .with_context(|| format!("running `brew install {pkg}`"))?;
+        state.audit(format!("brew install {pkg}"), exit);
         if exit != 0 {
+            let key = brew_step_key(pkg);
+            state.mark_step_failed(key, format!("brew install {pkg} exit {exit}"));
+            state.save().ok();
             bail!("`brew install {pkg}` failed with exit code {exit}");
         }
+        let key = brew_step_key(pkg);
+        state.mark_step_complete(key, None, Some(InstalledBy::Henk));
+        state.save().ok();
     }
     Ok(())
 }
 
+fn brew_step_key(pkg: &str) -> &'static str {
+    match pkg {
+        "mkcert" => steps::BREW_MKCERT,
+        "nss" => steps::BREW_NSS,
+        "dnsmasq" => steps::BREW_DNSMASQ,
+        _ => steps::BREW_MKCERT, // unreachable: missing list is fixed
+    }
+}
+
 /// Run `sudo -v` to prime the credential cache so subsequent non-interactive
 /// `sudo` calls within the cache window don't re-prompt.
-async fn prime_sudo(runner: &SystemRunner) -> Result<()> {
+async fn prime_sudo(runner: &SystemRunner, state: &mut StateManifest) -> Result<()> {
     println!("  ⤷ priming sudo credentials (one password prompt) ...");
     let exit = runner
         .run_inherit("sudo", ["-v"])
         .await
         .context("running `sudo -v`")?;
+    state.audit("sudo -v", exit);
+    state.save().ok();
     if exit != 0 {
         bail!("could not prime sudo credentials (exit {exit}). Aborting.");
     }
@@ -273,6 +358,16 @@ async fn maybe_already_initialized(runner: &SystemRunner, cfg: &Config) -> Optio
     println!("  {}  resolver     {}", "✓".green(), resolver.display());
     println!("  {}  dnsmasq      {}", "✓".green(), dnsmasq_drop_in.display());
     println!();
+
+    // Backfill state.json on first re-run after M7 lands. Pre-M7 installs
+    // didn't track state, so `doctor` and `uninstall` had nothing to
+    // work with on already-up boxes. We mark filesystem-level steps
+    // complete and brew packages `Preexisting` — the safe default
+    // means `uninstall --deep` will skip them, never accidentally
+    // removing a tool that was on the box before henk arrived.
+    if let Err(e) = backfill_state(&cfg, &cert, &resolver, &dnsmasq_drop_in) {
+        eprintln!("  ! could not backfill state.json: {e}");
+    }
     println!("  Re-running init would only re-render templates and bring the stack up.");
     println!(
         "  Tip: `henk up` brings the stack up; `henk doctor --repair` (M7) fixes drift."
@@ -287,6 +382,45 @@ async fn maybe_already_initialized(runner: &SystemRunner, cfg: &Config) -> Optio
         print_completion_summary(cfg);
     }
     Some(())
+}
+
+/// Build a `state.json` for an already-up host that predates state
+/// tracking. Idempotent: re-running on a host with state.json is a
+/// no-op.
+fn backfill_state(
+    cfg: &Config,
+    cert: &Path,
+    resolver: &Path,
+    dnsmasq_dropin: &Path,
+) -> Result<()> {
+    if StateManifest::is_present() {
+        return Ok(());
+    }
+    let mut state = StateManifest::load_or_init(&cfg.tld)?;
+    state.audit("state.json backfilled from already-initialised host", 0);
+
+    state.mark_step_complete(steps::BREW_MKCERT, None, Some(InstalledBy::Preexisting));
+    state.mark_step_complete(steps::BREW_NSS, None, Some(InstalledBy::Preexisting));
+    state.mark_step_complete(steps::BREW_DNSMASQ, None, Some(InstalledBy::Preexisting));
+    state.mark_step_complete(steps::MKCERT_CA, None, None);
+    state.mark_step_complete(
+        steps::WILDCARD_CERT,
+        Some(cert.to_path_buf()),
+        None,
+    );
+    state.mark_step_complete(
+        steps::DNSMASQ_DROPIN,
+        Some(dnsmasq_dropin.to_path_buf()),
+        None,
+    );
+    state.mark_step_complete(
+        steps::RESOLVER_FILE,
+        Some(resolver.to_path_buf()),
+        None,
+    );
+    state.mark_step_complete(steps::STACK_RENDERED, None, None);
+    state.mark_step_complete(steps::STACK_UP, None, None);
+    state.save()
 }
 
 async fn brew_dnsmasq_dropin_path(runner: &SystemRunner, tld: &str) -> Option<std::path::PathBuf> {
