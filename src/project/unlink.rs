@@ -151,6 +151,28 @@ async fn is_henk_traefik_running(runner: &SystemRunner) -> bool {
     matches!(out, Ok(o) if o.ok() && o.stdout.lines().any(|l| l.trim() == "henk-traefik"))
 }
 
+fn print_summary(slug: &str, removed: &[String], project_gone: bool, project_dir: &Path) {
+    use owo_colors::OwoColorize;
+    println!();
+    println!("{}", "✓ unlinked.".green().bold());
+    for h in removed {
+        println!("  - https://{h}");
+    }
+    println!();
+    if project_gone {
+        println!("  removed `.henk.toml`, the compose override (if we owned it),");
+        println!("  and ~/.config/henk/dynamic/{slug}.yml.");
+        println!();
+        println!("  If your `.env` carries an `APP_PORT=...` line we appended, drop it");
+        println!(
+            "  manually — henk doesn't edit existing `.env` lines on unlink ({}).",
+            project_dir.display()
+        );
+    } else {
+        println!("  remaining hosts re-rendered to ~/.config/henk/dynamic/{slug}.yml.");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -181,27 +203,5 @@ mod tests {
         let dir = TempDir::new().unwrap();
         // No file present — must not error.
         remove_manifest_file(dir.path()).unwrap();
-    }
-}
-
-fn print_summary(slug: &str, removed: &[String], project_gone: bool, project_dir: &Path) {
-    use owo_colors::OwoColorize;
-    println!();
-    println!("{}", "✓ unlinked.".green().bold());
-    for h in removed {
-        println!("  - https://{h}");
-    }
-    println!();
-    if project_gone {
-        println!("  removed `.henk.toml`, the compose override (if we owned it),");
-        println!("  and ~/.config/henk/dynamic/{slug}.yml.");
-        println!();
-        println!("  If your `.env` carries an `APP_PORT=...` line we appended, drop it");
-        println!(
-            "  manually — henk doesn't edit existing `.env` lines on unlink ({}).",
-            project_dir.display()
-        );
-    } else {
-        println!("  remaining hosts re-rendered to ~/.config/henk/dynamic/{slug}.yml.");
     }
 }

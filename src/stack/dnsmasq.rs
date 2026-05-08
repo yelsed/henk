@@ -162,10 +162,10 @@ async fn write_drop_in(runner: &SystemRunner, tld: &str) -> Result<()> {
     fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
 
     let desired = render(tld);
-    if let Ok(existing) = fs::read_to_string(&path) {
-        if existing == desired {
-            return Ok(());
-        }
+    if let Ok(existing) = fs::read_to_string(&path)
+        && existing == desired
+    {
+        return Ok(());
     }
     let tmp = path.with_extension("tmp");
     fs::write(&tmp, &desired).with_context(|| format!("writing {}", tmp.display()))?;

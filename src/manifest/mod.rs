@@ -236,19 +236,18 @@ impl StateManifest {
     pub fn brew_packages_we_installed(&self) -> Vec<&str> {
         let mut out = Vec::new();
         for name in ["brew_mkcert", "brew_nss", "brew_dnsmasq"] {
-            if let Some(step) = self.steps.get(name) {
-                if matches!(step.installed_by, Some(InstalledBy::Henk))
-                    && step.state == StepState::Complete
-                {
-                    // Map step name → package name.
-                    let pkg = match name {
-                        "brew_mkcert" => "mkcert",
-                        "brew_nss" => "nss",
-                        "brew_dnsmasq" => "dnsmasq",
-                        _ => continue,
-                    };
-                    out.push(pkg);
-                }
+            if let Some(step) = self.steps.get(name)
+                && matches!(step.installed_by, Some(InstalledBy::Henk))
+                && step.state == StepState::Complete
+            {
+                // Map step name → package name.
+                let pkg = match name {
+                    "brew_mkcert" => "mkcert",
+                    "brew_nss" => "nss",
+                    "brew_dnsmasq" => "dnsmasq",
+                    _ => continue,
+                };
+                out.push(pkg);
             }
         }
         out

@@ -65,10 +65,10 @@ pub fn render_all(cfg: &Config) -> Result<()> {
 }
 
 fn write_if_changed(path: &Path, contents: &str) -> Result<()> {
-    if let Ok(existing) = fs::read_to_string(path) {
-        if existing == contents {
-            return Ok(());
-        }
+    if let Ok(existing) = fs::read_to_string(path)
+        && existing == contents
+    {
+        return Ok(());
     }
     let parent = path
         .parent()
@@ -128,8 +128,10 @@ mod tests {
 
     #[test]
     fn fallback_tld_substitutes_throughout() {
-        let mut cfg = Config::default();
-        cfg.tld = "henk".into();
+        let cfg = Config {
+            tld: "henk".into(),
+            ..Config::default()
+        };
         let v = vars_from(&cfg);
         // Dashboard router rule lives in dynamic.yml (M3 file-provider-only
         // architecture). Cert paths follow the chosen TLD.

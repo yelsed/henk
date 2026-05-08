@@ -116,7 +116,7 @@ pub async fn run_all(runner: &SystemRunner, tld_override: Option<&str>) -> Resul
     let tld = tld::decide(tld_override, valet_present, herd_present);
 
     // Existing resolver file for our chosen TLD.
-    items.push(resolver::probe(&tld.value()));
+    items.push(resolver::probe(tld.value()));
 
     // Ports we plan to bind. If our own Traefik is already bound to
     // these, downgrade the Block to an Info — re-running `henk init` on
@@ -127,7 +127,7 @@ pub async fn run_all(runner: &SystemRunner, tld_override: Option<&str>) -> Resul
     for (item, port) in [(&mut p80, 80u16), (&mut p443, 443u16)] {
         if item.status == Status::Block && henk_traefik_ports.contains(&port) {
             item.status = Status::Info;
-            item.detail = format!("bound by henk-traefik (will be reused)");
+            item.detail = "bound by henk-traefik (will be reused)".to_string();
         }
     }
     items.push(p80);

@@ -17,10 +17,10 @@ pub async fn herd_detected(runner: &SystemRunner) -> bool {
 }
 
 fn valet_dir_exists() -> bool {
-    if let Some(home) = dirs::home_dir() {
-        if home.join(".config/valet").exists() {
-            return true;
-        }
+    if let Some(home) = dirs::home_dir()
+        && home.join(".config/valet").exists()
+    {
+        return true;
     }
     false
 }

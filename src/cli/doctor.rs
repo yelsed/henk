@@ -117,91 +117,6 @@ fn print_state_summary(state: &StateManifest) {
     println!();
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::manifest::{InstalledBy, StateManifest};
-    use tempfile::TempDir;
-
-    fn cfg() -> Config {
-        Config {
-            schema_version: 1,
-            tld: "test".into(),
-            ports: crate::config::Ports {
-                http: 80,
-                https: 443,
-                dnsmasq: 35353,
-                dashboard: 19080,
-            },
-            update_check: true,
-        }
-    }
-
-    #[test]
-    fn drift_flags_missing_cert_path() {
-        let mut state = StateManifest::default();
-        state.tld = "test".into();
-        state.mark_step_complete(
-            steps::WILDCARD_CERT,
-            Some(std::path::PathBuf::from(
-                "/tmp/henk-cert-that-doesnt-exist.pem",
-            )),
-            None,
-        );
-        let drift = collect_drift(&state, &cfg());
-        assert!(
-            drift.iter().any(|d| d.contains("wildcard cert")),
-            "expected drift entry for missing cert; got {drift:?}"
-        );
-    }
-
-    #[test]
-    fn drift_flags_missing_resolver_file() {
-        let mut state = StateManifest::default();
-        state.tld = "test".into();
-        state.mark_step_complete(
-            steps::RESOLVER_FILE,
-            Some(std::path::PathBuf::from(
-                "/tmp/henk-resolver-that-doesnt-exist",
-            )),
-            None,
-        );
-        let drift = collect_drift(&state, &cfg());
-        assert!(
-            drift.iter().any(|d| d.contains("resolver file")),
-            "expected drift entry for resolver; got {drift:?}"
-        );
-    }
-
-    #[test]
-    fn drift_empty_when_files_exist() {
-        let dir = TempDir::new().unwrap();
-        let cert = dir.path().join("cert.pem");
-        std::fs::write(&cert, "fake").unwrap();
-        let mut state = StateManifest::default();
-        state.tld = "test".into();
-        state.mark_step_complete(steps::WILDCARD_CERT, Some(cert), None);
-        // no resolver step → not checked
-        let drift = collect_drift(&state, &cfg());
-        // Drift may still flag a missing compose file (we didn't render
-        // templates here), so allow that one.
-        for d in &drift {
-            assert!(d.contains("compose file"), "unexpected drift entry: {d}");
-        }
-    }
-
-    #[test]
-    fn print_state_summary_doesnt_panic() {
-        let mut state = StateManifest::default();
-        state.tld = "test".into();
-        state.mark_step_complete(steps::BREW_MKCERT, None, Some(InstalledBy::Henk));
-        state.mark_step_complete(steps::WILDCARD_CERT, None, None);
-        // Just make sure it doesn't blow up — we don't capture stdout
-        // here, the test exists to catch fmt-panics on edge cases.
-        print_state_summary(&state);
-    }
-}
-
 fn collect_drift(state: &StateManifest, cfg: &Config) -> Vec<String> {
     let mut out = Vec::new();
 
@@ -243,4 +158,97 @@ fn collect_drift(state: &StateManifest, cfg: &Config) -> Vec<String> {
     }
 
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::manifest::{InstalledBy, StateManifest};
+    use tempfile::TempDir;
+
+    fn cfg() -> Config {
+        Config {
+            schema_version: 1,
+            tld: "test".into(),
+            ports: crate::config::Ports {
+                http: 80,
+                https: 443,
+                dnsmasq: 35353,
+                dashboard: 19080,
+            },
+            update_check: true,
+        }
+    }
+
+    #[test]
+    fn drift_flags_missing_cert_path() {
+        let mut state = StateManifest {
+            tld: "test".into(),
+            ..StateManifest::default()
+        };
+        state.mark_step_complete(
+            steps::WILDCARD_CERT,
+            Some(std::path::PathBuf::from(
+                "/tmp/henk-cert-that-doesnt-exist.pem",
+            )),
+            None,
+        );
+        let drift = collect_drift(&state, &cfg());
+        assert!(
+            drift.iter().any(|d| d.contains("wildcard cert")),
+            "expected drift entry for missing cert; got {drift:?}"
+        );
+    }
+
+    #[test]
+    fn drift_flags_missing_resolver_file() {
+        let mut state = StateManifest {
+            tld: "test".into(),
+            ..StateManifest::default()
+        };
+        state.mark_step_complete(
+            steps::RESOLVER_FILE,
+            Some(std::path::PathBuf::from(
+                "/tmp/henk-resolver-that-doesnt-exist",
+            )),
+            None,
+        );
+        let drift = collect_drift(&state, &cfg());
+        assert!(
+            drift.iter().any(|d| d.contains("resolver file")),
+            "expected drift entry for resolver; got {drift:?}"
+        );
+    }
+
+    #[test]
+    fn drift_empty_when_files_exist() {
+        let dir = TempDir::new().unwrap();
+        let cert = dir.path().join("cert.pem");
+        std::fs::write(&cert, "fake").unwrap();
+        let mut state = StateManifest {
+            tld: "test".into(),
+            ..StateManifest::default()
+        };
+        state.mark_step_complete(steps::WILDCARD_CERT, Some(cert), None);
+        // no resolver step → not checked
+        let drift = collect_drift(&state, &cfg());
+        // Drift may still flag a missing compose file (we didn't render
+        // templates here), so allow that one.
+        for d in &drift {
+            assert!(d.contains("compose file"), "unexpected drift entry: {d}");
+        }
+    }
+
+    #[test]
+    fn print_state_summary_doesnt_panic() {
+        let mut state = StateManifest {
+            tld: "test".into(),
+            ..StateManifest::default()
+        };
+        state.mark_step_complete(steps::BREW_MKCERT, None, Some(InstalledBy::Henk));
+        state.mark_step_complete(steps::WILDCARD_CERT, None, None);
+        // Just make sure it doesn't blow up — we don't capture stdout
+        // here, the test exists to catch fmt-panics on edge cases.
+        print_state_summary(&state);
+    }
 }

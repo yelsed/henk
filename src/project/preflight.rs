@@ -169,10 +169,10 @@ fn check_nuxt_devserver(project_dir: &Path) -> Vec<Issue> {
 
 fn check_dev_script_bind_flag(pkg_body: Option<&str>, project_dir: &Path) -> Vec<Issue> {
     // Skip when nuxt.config sets devServer — that supersedes the CLI flag.
-    if let Some((_, body)) = read_nuxt_config(project_dir) {
-        if body.to_ascii_lowercase().contains("devserver") {
-            return Vec::new();
-        }
+    if let Some((_, body)) = read_nuxt_config(project_dir)
+        && body.to_ascii_lowercase().contains("devserver")
+    {
+        return Vec::new();
     }
     let Some(body) = pkg_body else {
         return Vec::new();

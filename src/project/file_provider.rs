@@ -31,10 +31,10 @@ pub fn write(manifest: &ProjectManifest) -> Result<()> {
     fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
 
     let body = render(manifest);
-    if let Ok(existing) = fs::read_to_string(&path) {
-        if existing == body {
-            return Ok(());
-        }
+    if let Ok(existing) = fs::read_to_string(&path)
+        && existing == body
+    {
+        return Ok(());
     }
     let tmp = path.with_extension("tmp");
     fs::write(&tmp, body).with_context(|| format!("writing {}", tmp.display()))?;

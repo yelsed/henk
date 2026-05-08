@@ -368,7 +368,7 @@ async fn maybe_already_initialized(runner: &SystemRunner, cfg: &Config) -> Optio
     // complete and brew packages `Preexisting` — the safe default
     // means `uninstall --deep` will skip them, never accidentally
     // removing a tool that was on the box before henk arrived.
-    if let Err(e) = backfill_state(&cfg, &cert, &resolver, &dnsmasq_drop_in) {
+    if let Err(e) = backfill_state(cfg, &cert, &resolver, &dnsmasq_drop_in) {
         eprintln!("  ! could not backfill state.json: {e}");
     }
     println!("  Re-running init would only re-render templates and bring the stack up.");

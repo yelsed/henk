@@ -83,22 +83,23 @@ pub async fn run(
     let mut vite_host_added: Option<String> = None;
     if vite_offered {
         let vite_host = format!("vite.{new_host}");
-        if !manifest.has_host(&vite_host) && offer_vite_subhost(&vite_host)? {
-            if let (Some(svc), _) = (manifest.hosts.first().and_then(|h| h.service.clone()), ()) {
-                manifest.hosts.push(HostEntry {
-                    host: vite_host.clone(),
-                    service: Some(svc),
-                    port: Some(5173),
-                    // Default to host-machine Vite (Sail's `npm run dev`
-                    // workflow): docker-proxy holds container:5173 so
-                    // Vite-on-host is the only way to bind it. Users
-                    // running Vite inside the container should drop
-                    // this line from `.henk.toml`.
-                    target: Some("http://host.docker.internal:5173".into()),
-                    flags: vec!["vite".into()],
-                });
-                vite_host_added = Some(vite_host);
-            }
+        if !manifest.has_host(&vite_host)
+            && offer_vite_subhost(&vite_host)?
+            && let (Some(svc), _) = (manifest.hosts.first().and_then(|h| h.service.clone()), ())
+        {
+            manifest.hosts.push(HostEntry {
+                host: vite_host.clone(),
+                service: Some(svc),
+                port: Some(5173),
+                // Default to host-machine Vite (Sail's `npm run dev`
+                // workflow): docker-proxy holds container:5173 so
+                // Vite-on-host is the only way to bind it. Users
+                // running Vite inside the container should drop
+                // this line from `.henk.toml`.
+                target: Some("http://host.docker.internal:5173".into()),
+                flags: vec!["vite".into()],
+            });
+            vite_host_added = Some(vite_host);
         }
     }
 
@@ -433,10 +434,10 @@ fn build_service_memberships(
 ) -> Result<Vec<override_file::ServiceMembership>> {
     let mut seen: Vec<String> = Vec::new();
     for h in &manifest.hosts {
-        if let Some(svc) = h.service.as_deref() {
-            if !seen.iter().any(|s| s == svc) {
-                seen.push(svc.to_string());
-            }
+        if let Some(svc) = h.service.as_deref()
+            && !seen.iter().any(|s| s == svc)
+        {
+            seen.push(svc.to_string());
         }
     }
     let mut out = Vec::with_capacity(seen.len());

@@ -87,10 +87,9 @@ impl ProjectManifest {
     pub fn save(&self, dir: &Path) -> Result<()> {
         let p = Self::path_in(dir);
         let body = toml::to_string_pretty(self).context("serialising manifest")?;
-        let header = format!(
-            "# managed by henk — see https://github.com/fivespark/henk\n\
-             # this file marks the project as linked. Safe to commit or .gitignore.\n",
-        );
+        let header = "# managed by henk — see https://github.com/fivespark/henk\n\
+             # this file marks the project as linked. Safe to commit or .gitignore.\n"
+            .to_string();
         let full = format!("{header}\n{body}");
         let tmp = p.with_extension("tmp");
         fs::write(&tmp, full).with_context(|| format!("writing {}", tmp.display()))?;

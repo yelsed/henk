@@ -164,10 +164,10 @@ fn rationale_for(
 /// APP_URL, PUBLIC_URL, NUXT_BASE_URL, APP_BASE_URL.
 fn env_url_port(env: &std::collections::BTreeMap<String, String>) -> Option<u16> {
     for key in ["APP_URL", "PUBLIC_URL", "NUXT_BASE_URL", "APP_BASE_URL"] {
-        if let Some(url) = env.get(key) {
-            if let Some(port) = port_from_url(url) {
-                return Some(port);
-            }
+        if let Some(url) = env.get(key)
+            && let Some(port) = port_from_url(url)
+        {
+            return Some(port);
         }
     }
     None
@@ -199,13 +199,13 @@ fn default_host_for(
     tld: &str,
 ) -> String {
     for key in ["APP_URL", "PUBLIC_URL", "NUXT_BASE_URL", "APP_BASE_URL"] {
-        if let Some(url) = env.get(key) {
-            if let Some(host) = host_from_url(url) {
-                let bare = host.split(':').next().unwrap_or("");
-                let tld_suffix = format!(".{tld}");
-                if bare.ends_with(&tld_suffix) && !bare.is_empty() {
-                    return bare.to_string();
-                }
+        if let Some(url) = env.get(key)
+            && let Some(host) = host_from_url(url)
+        {
+            let bare = host.split(':').next().unwrap_or("");
+            let tld_suffix = format!(".{tld}");
+            if bare.ends_with(&tld_suffix) && !bare.is_empty() {
+                return bare.to_string();
             }
         }
     }
@@ -227,10 +227,10 @@ fn detect_host_mode_port(
     if let Some(p) = env_url_port(env) {
         return p;
     }
-    if let Ok(body) = fs::read_to_string(project_dir.join("package.json")) {
-        if let Some(p) = port_from_package_json(&body) {
-            return p;
-        }
+    if let Ok(body) = fs::read_to_string(project_dir.join("package.json"))
+        && let Some(p) = port_from_package_json(&body)
+    {
+        return p;
     }
     3000
 }
