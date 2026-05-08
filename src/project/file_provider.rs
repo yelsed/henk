@@ -100,10 +100,20 @@ fn router_name(slug: &str, host: &HostEntry, index: usize) -> String {
     format!("{slug}-{leading}")
 }
 
-/// Build the backend URL Traefik talks to for this host. Docker mode
-/// hits the container's service name on the shared network; Host mode
-/// hits `host.docker.internal`.
+/// Build the backend URL Traefik talks to for this host.
+///
+/// Per-host `target` always wins when set — that lets docker-mode
+/// projects route an individual sub-host to the host machine (typical
+/// for Vite running on the host while the rest of the stack lives in
+/// containers, where Docker holds the published port and forces Vite
+/// to bind via `host.docker.internal`).
+///
+/// Otherwise: Docker mode resolves the container's service name on
+/// `henk-proxy`; Host mode falls back to `host.docker.internal:80`.
 fn backend_url(manifest: &ProjectManifest, host: &HostEntry) -> String {
+    if let Some(target) = host.target.as_deref() {
+        return target.to_string();
+    }
     match manifest.mode {
         ProjectMode::Docker => {
             // Compose v2 aliases the service onto each network the
@@ -112,14 +122,10 @@ fn backend_url(manifest: &ProjectManifest, host: &HostEntry) -> String {
             // (Sail's `laravel.test`) DO resolve as DNS names.
             let svc = host.service.as_deref().unwrap_or("web");
             let port = host.port.unwrap_or(80);
-            // Suppress unused-import warning until we wire it up below.
-            let _ = PROXY_NETWORK;
+            let _ = PROXY_NETWORK; // keep the import alive; caller logs on this
             format!("http://{svc}:{port}")
         }
-        ProjectMode::Host => host
-            .target
-            .clone()
-            .unwrap_or_else(|| "http://host.docker.internal:80".to_string()),
+        ProjectMode::Host => "http://host.docker.internal:80".to_string(),
     }
 }
 

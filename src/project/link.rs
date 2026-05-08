@@ -90,7 +90,12 @@ pub async fn run(
                     host: vite_host.clone(),
                     service: Some(svc),
                     port: Some(5173),
-                    target: None,
+                    // Default to host-machine Vite (Sail's `npm run dev`
+                    // workflow): docker-proxy holds container:5173 so
+                    // Vite-on-host is the only way to bind it. Users
+                    // running Vite inside the container should drop
+                    // this line from `.henk.toml`.
+                    target: Some("http://host.docker.internal:5173".into()),
                     flags: vec!["vite".into()],
                 });
                 vite_host_added = Some(vite_host);
@@ -205,16 +210,28 @@ fn build_host_entry(detection: &ProjectDetection, host: &str) -> Result<HostEntr
             // run `henk link --add --host vite.spatiebalk.test` and get
             // the same wiring the auto-offer would have produced.
             let is_vite_host = host.starts_with("vite.") && detection.vite_detected;
-            let (port, flags) = if is_vite_host {
-                (5173, vec!["vite".to_string()])
+            let (port, flags, target) = if is_vite_host {
+                // Sail-style projects publish 5173 from the laravel.test
+                // container, which means docker-proxy holds host:5173 and
+                // Vite-on-host can't bind it from inside the container at
+                // the same time. The conventional setup runs Vite on the
+                // host (faster than container FS), so the routing target
+                // is `host.docker.internal:5173`. Users who run Vite
+                // INSIDE the container can drop the `target` line in
+                // `.henk.toml` and the docker-mode default kicks back in.
+                (
+                    5173,
+                    vec!["vite".to_string()],
+                    Some("http://host.docker.internal:5173".to_string()),
+                )
             } else {
-                (port, vec![])
+                (port, vec![], None)
             };
             Ok(HostEntry {
                 host: host.to_string(),
                 service: Some(service),
                 port: Some(port),
-                target: None,
+                target,
                 flags,
             })
         }
@@ -502,6 +519,8 @@ fn print_vite_snippet(vite_host: &str) {
     println!();
     println!("{}", "Vite HMR — copy/paste:".bold());
     println!();
+    // The main Laravel/Nuxt host = vite_host with the leading `vite.` stripped.
+    let app_host = vite_host.strip_prefix("vite.").unwrap_or(vite_host);
     println!("  // vite.config.{{js,ts,mjs}}");
     println!("  export default defineConfig({{");
     println!("    server: {{");
@@ -515,8 +534,19 @@ fn print_vite_snippet(vite_host: &str) {
     println!("      }},");
     println!("      // dev origin for Laravel/PHP-rendered <script src> tags");
     println!("      origin: 'https://{vite_host}',");
+    println!("      // Vite v7 tightened CORS — explicit allow for the app origin");
+    println!("      // is needed for cross-subdomain module loading.");
+    println!("      cors: {{ origin: 'https://{app_host}' }},");
     println!("    }},");
     println!("  }})");
+    println!();
+    println!(
+        "  Note: Sail publishes :5173 from the laravel.test container. Set"
+    );
+    println!(
+        "  `VITE_PORT=15173` (or any free high port) in `.env` to free host:5173,"
+    );
+    println!("  then `./vendor/bin/sail down && ./vendor/bin/sail up -d` to apply.");
     println!();
 }
 
