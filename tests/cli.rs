@@ -28,6 +28,7 @@ fn help_lists_all_subcommands() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     for cmd in [
         "init", "link", "unlink", "status", "up", "down", "doctor", "update", "uninstall",
+        "dashboard",
     ] {
         assert!(
             stdout.contains(cmd),

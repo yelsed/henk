@@ -3,6 +3,7 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
+mod dashboard;
 mod default;
 mod doctor;
 mod down;
@@ -99,6 +100,9 @@ pub enum Command {
         #[arg(long)]
         keep_config: bool,
     },
+
+    /// Live TUI: stack health, linked projects, certificate state.
+    Dashboard,
 }
 
 /// Entry point called by `main`. Parses already-done; just dispatches.
@@ -116,5 +120,6 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
         Some(Command::Uninstall { deep, keep_config }) => {
             uninstall::run(deep, keep_config).await
         }
+        Some(Command::Dashboard) => dashboard::run().await,
     }
 }
