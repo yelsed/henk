@@ -1,7 +1,5 @@
 # Linking projects
 
-> **Status:** placeholder. Lands with **M4** (Docker mode) and **M6** (Host mode).
-
 ## Two modes
 
 `henk link` (run inside a project directory) auto-picks one of two modes:
@@ -13,14 +11,39 @@ In both modes the project's existing daily commands (`npm run dev`, `sail up`, `
 
 ## What henk writes
 
-This document will list:
+### Docker mode
 
-- The exact label set generated for Docker mode (single-host and multi-host).
-- The schema of `.henk.toml`.
-- The schema of file-provider YAML for Host mode.
-- When henk falls back to `henk.override.yml` and what it asks the user to add to `.env`.
-- When henk asks to append `APP_PORT=8080` (or analogous) to `.env`.
-- What happens on `henk unlink`.
+- `<project>/compose.override.yml` (or `<project>/henk.override.yml` when the canonical name is taken) — joins the project's web service to the `henk-proxy` network. Routing rules live in the global file-provider, **not** here, so the override stays small.
+- `<project>/.henk.toml` — marker + slug + host list.
+- `~/.config/henk/dynamic/<slug>.yml` — Traefik routers + services per host. Backend URL is `http://<service>:<port>` on the shared `henk-proxy` network.
+
+If your service publishes `:80` or `:443` on the host (Sail's `${APP_PORT:-80}:80`), henk offers to append `APP_PORT=18080` (or another free high port) to your `.env` so Compose binds elsewhere. The append is consent-gated and idempotent — henk never edits existing lines.
+
+When `compose.override.yml` is already yours, henk falls back to `henk.override.yml` and tells you to add `COMPOSE_FILE=compose.override.yml:henk.override.yml` to `.env` so Compose picks both up.
+
+### Host mode
+
+- `<project>/.henk.toml` — the only file henk writes inside the project.
+- `~/.config/henk/dynamic/<slug>.yml` — file-provider entry pointing at `http://host.docker.internal:<port>`.
+
+#### Bind your dev server to 0.0.0.0
+
+Traefik runs in a container and reaches your dev server through `host.docker.internal`. Docker Desktop on macOS resolves that to a gateway address that **only sees ports bound on the IPv4 wildcard**. Frameworks like Nuxt, Vite, and Next default to `127.0.0.1` (or `[::1]` on newer Node), which the gateway can't reach — you'll get a `502 Bad Gateway` through `https://<slug>.<tld>`.
+
+Pass the bind flag explicitly when you start the dev server:
+
+```bash
+# Nuxt
+npm run dev -- --host 0.0.0.0 --port 3000
+
+# Vite
+npm run dev -- --host 0.0.0.0 --port 5173
+
+# Next
+npx next dev -H 0.0.0.0 -p 3000
+```
+
+Or set the bind address in your framework's config so plain `npm run dev` does the right thing. `henk link` prints this reminder at the end of every host-mode link.
 
 ## Detection
 

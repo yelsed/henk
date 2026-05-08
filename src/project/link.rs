@@ -132,6 +132,10 @@ pub async fn run(
     if let Some(vite_host) = vite_host_added {
         print_vite_snippet(&vite_host);
     }
+    if matches!(detection.mode, ProjectMode::Host) {
+        let port = detection.web_port.unwrap_or(3000);
+        print_host_mode_hint(port);
+    }
     Ok(())
 }
 
@@ -465,6 +469,53 @@ fn print_vite_snippet(vite_host: &str) {
     println!("      origin: 'https://{vite_host}',");
     println!("    }},");
     println!("  }})");
+    println!();
+}
+
+/// Host-mode reminder: Traefik runs in a container and reaches the
+/// host via `host.docker.internal`, which only resolves to ports that
+/// are actually bound on `0.0.0.0` (or the IPv4 wildcard). Frameworks
+/// like Nuxt and Vite default to `127.0.0.1` / `[::1]`, so without
+/// this hint the user gets a `502 Bad Gateway` and no clue why.
+fn print_host_mode_hint(port: u16) {
+    use owo_colors::OwoColorize;
+    println!();
+    println!(
+        "{}",
+        "Host mode: bind your dev server to 0.0.0.0".bold()
+    );
+    println!();
+    println!(
+        "  Traefik runs in Docker and reaches your dev server via"
+    );
+    println!(
+        "  `host.docker.internal`, which only sees ports bound on the"
+    );
+    println!(
+        "  IPv4 wildcard. By default Nuxt/Vite/Next bind to 127.0.0.1"
+    );
+    println!(
+        "  or `[::1]` only — that gives you a 502 through https://."
+    );
+    println!();
+    println!("  Pick whichever applies:");
+    println!();
+    println!(
+        "    Nuxt:  npm run dev -- --host 0.0.0.0 --port {port}"
+    );
+    println!(
+        "    Vite:  npm run dev -- --host 0.0.0.0 --port {port}"
+    );
+    println!(
+        "    Next:  npx next dev -H 0.0.0.0 -p {port}"
+    );
+    println!();
+    println!(
+        "  Or set the bind address in your framework's config so"
+    );
+    println!(
+        "  `npm run dev` does the right thing without flags."
+    );
     println!();
 }
 
