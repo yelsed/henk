@@ -63,12 +63,15 @@ fn init_dry_run_renders_detection_table() {
 // docs/architecture.md, not by an automated CLI test.
 
 #[test]
-fn update_check_prints_release_pointer() {
-    // `henk update --check` is read-only and works without an
-    // initialised stack, so it's safe to assert against in CI.
+fn update_check_exits_cleanly() {
+    // `henk update --check` is read-only and safe to run without an
+    // initialised stack. When no install receipt is present (source build /
+    // CI), it prints a friendly message and exits 0. When a receipt exists
+    // it checks GitHub and prints the version status. Either way it must
+    // succeed and mention "henk".
     henk()
         .args(["update", "--check"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Self-update"));
+        .stdout(predicate::str::contains("henk"));
 }

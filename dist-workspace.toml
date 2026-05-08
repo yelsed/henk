@@ -1,0 +1,36 @@
+# cargo-dist configuration for henk.
+# https://opensource.axo.dev/cargo-dist/book/reference/config.html
+#
+# Targets: macOS only (Apple Silicon + Intel). No Linux/Windows.
+# Distribution: GitHub Releases (no crates.io publish).
+
+[workspace]
+members = ["cargo:."]
+
+[dist]
+# Minimum cargo-dist version that can build this config.
+cargo-dist-version = "0.31.0"
+
+# macOS-only distribution.
+targets = [
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+]
+
+# Use the GitHub CI hosting provider.
+ci = "github"
+
+# Produce a shell installer script as a release artifact.
+installers = ["shell"]
+
+# Where the shell installer is hosted (must match the repo).
+installer-updater = true
+
+# Archive format for macOS.
+unix-archive = ".tar.gz"
+
+# Don't publish to crates.io — GitHub Releases is the distribution channel.
+publish-jobs = []
+
+# Allow dirty working trees during dist (useful for CI).
+allow-dirty = ["ci"]
