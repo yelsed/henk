@@ -14,11 +14,17 @@ use crate::stack::{certs, paths};
 
 /// Run the link flow against `project_dir` (usually `cwd`). `add_only`
 /// distinguishes `henk link` (fresh) from `henk link --add` (extra host).
+/// `service_override` + `port_override` let the caller bypass the
+/// auto-detected web service — necessary for multi-service projects
+/// where `--add` should route a sub-host (`mail.hub.test`) to a
+/// different container (`mailhog`) than the main app.
 pub async fn run(
     runner: &SystemRunner,
     project_dir: &Path,
     add_only: bool,
     host_override: Option<String>,
+    service_override: Option<String>,
+    port_override: Option<u16>,
 ) -> Result<()> {
     let cfg = Config::load()?
         .context("henk has not been initialised yet — run `henk init` first")?;
@@ -27,11 +33,18 @@ pub async fn run(
     let mut detection = detect::detect(project_dir, &slug, &cfg.tld)?;
     print_detection(&detection);
 
-    // Resolve service ambiguity now (before manifest mutation) so the
-    // user picks once. `web_service` is None when detection couldn't
-    // pin one but candidates exist — prompt then.
-    if matches!(detection.mode, ProjectMode::Docker) && detection.web_service.is_none() {
-        if let Some((svc, port)) = pick_web_service(&detection.candidates)? {
+    // Explicit overrides win over detection. Without them, the picker
+    // disambiguates the multi-service case for the *initial* link, and
+    // `--add` re-fires the picker so each new host can name a
+    // different service if the user wants.
+    if let Some(svc) = service_override.clone() {
+        detection.web_service = Some(svc);
+        detection.web_port = port_override.or(detection.web_port);
+    } else if matches!(detection.mode, ProjectMode::Docker) {
+        let needs_pick = detection.web_service.is_none() || (add_only && detection.candidates.len() > 1);
+        if needs_pick
+            && let Some((svc, port)) = pick_web_service(&detection.candidates)?
+        {
             detection.web_service = Some(svc);
             detection.web_port = Some(port);
         }
@@ -95,18 +108,26 @@ pub async fn run(
     // no-op when nothing changed, or worse, (b) trigger the
     // henk.override.yml fallback path because our own canonical
     // compose.override.yml is already there.
-    if matches!(detection.mode, ProjectMode::Docker) && !add_only {
-        let service = manifest
-            .hosts
-            .first()
-            .and_then(|h| h.service.clone())
-            .context("internal: docker-mode manifest must have a service")?;
-        let existing_networks = read_service_networks(project_dir, &service)?;
-        let target = override_file::write(project_dir, &service, &existing_networks)?;
-        announce_override_target(&target);
+    if matches!(detection.mode, ProjectMode::Docker) {
+        // Always re-render the override from the full manifest. Each
+        // distinct service named in `manifest.hosts` needs to join
+        // `henk-proxy` (so Traefik can reach it), so multi-service
+        // projects (hub + mailhog) get every container on the network.
+        // We re-render on `--add` too, so `mail.hub.test → mailhog`
+        // adds `mailhog` to the override even though the canonical
+        // file already exists from the original `henk link`.
+        let members = build_service_memberships(project_dir, &manifest)?;
+        if !members.is_empty() {
+            let target = override_file::write(project_dir, &members)?;
+            // Only announce on a fresh link — `--add` re-rendering is
+            // routine and the announcement adds noise.
+            if !add_only {
+                announce_override_target(&target);
+            }
+        }
 
         // Append APP_PORT=8080 to .env if there's a :80/:443 collision.
-        if let Some(collided) = detection.port_collision {
+        if !add_only && let Some(collided) = detection.port_collision {
             handle_port_collision(project_dir, collided)?;
         }
     }
@@ -379,6 +400,33 @@ fn read_service_networks(project_dir: &Path, service: &str) -> Result<Vec<String
         .get(service)
         .map(|s| s.network_names())
         .unwrap_or_default())
+}
+
+/// Walk the manifest's hosts, dedupe their `service` field, and read
+/// each service's existing networks once from compose. Returns the
+/// memberships in stable order (first occurrence wins) so the override
+/// file is reproducible across runs.
+fn build_service_memberships(
+    project_dir: &Path,
+    manifest: &ProjectManifest,
+) -> Result<Vec<override_file::ServiceMembership>> {
+    let mut seen: Vec<String> = Vec::new();
+    for h in &manifest.hosts {
+        if let Some(svc) = h.service.as_deref() {
+            if !seen.iter().any(|s| s == svc) {
+                seen.push(svc.to_string());
+            }
+        }
+    }
+    let mut out = Vec::with_capacity(seen.len());
+    for svc in seen {
+        let nets = read_service_networks(project_dir, &svc)?;
+        out.push(override_file::ServiceMembership {
+            service: svc,
+            existing_networks: nets,
+        });
+    }
+    Ok(out)
 }
 
 /// Inline picker for the multi-service ambiguous case. Returns the

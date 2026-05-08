@@ -60,6 +60,17 @@ pub enum Command {
         /// Override the auto-detected hostname.
         #[arg(long)]
         host: Option<String>,
+
+        /// Override the auto-detected service (Docker mode). Useful for
+        /// multi-service projects where `--add` should route a sub-host
+        /// to a different container — e.g. `--service mailhog --port 8025`.
+        #[arg(long)]
+        service: Option<String>,
+
+        /// Override the auto-detected container port. Pairs with
+        /// `--service` for unambiguous overrides.
+        #[arg(long)]
+        port: Option<u16>,
     },
 
     /// Remove a project (or one of its hosts) from routing.
@@ -110,7 +121,9 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
     match cli.command {
         None => default::run().await,
         Some(Command::Init { dry_run, tld, yes }) => init::run(dry_run, tld, yes).await,
-        Some(Command::Link { add, host }) => link::run(add, host).await,
+        Some(Command::Link { add, host, service, port }) => {
+            link::run(add, host, service, port).await
+        }
         Some(Command::Unlink { host }) => unlink::run(host).await,
         Some(Command::Status) => status::run().await,
         Some(Command::Up) => up::run().await,

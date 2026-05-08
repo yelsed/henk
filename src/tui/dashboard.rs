@@ -563,6 +563,75 @@ http:
     }
 
     #[test]
+    fn render_runs_without_panicking_on_minimal_state() {
+        use ratatui::backend::TestBackend;
+
+        let state = DashboardState {
+            tld: "test".into(),
+            http_port: 80,
+            https_port: 443,
+            dashboard_port: 19080,
+            traefik_running: true,
+            dnsmasq_answering: true,
+            cert_sans: vec!["*.test".into(), "traefik.test".into()],
+            cert_expires: Some("Aug 8 06:58:37 2028 GMT".into()),
+            projects: vec![ProjectRow {
+                slug: "spatiebalk".into(),
+                hosts: vec!["spatiebalk.test".into(), "vite.spatiebalk.test".into()],
+                mode: "docker".into(),
+                backends: vec!["http://laravel.test:80".into()],
+            }],
+            last_refresh: Instant::now(),
+        };
+        let mut list_state = ListState::default();
+        list_state.select(Some(0));
+
+        let backend = TestBackend::new(120, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| render(f, &state, &mut list_state)).unwrap();
+
+        let buf = terminal.backend().buffer().clone();
+        let dump: String = buf.content().iter().map(|c| c.symbol()).collect();
+        assert!(dump.contains("henk dashboard"));
+        assert!(dump.contains("spatiebalk"));
+        assert!(dump.contains("running"));
+        assert!(dump.contains("2 SANs"));
+    }
+
+    #[test]
+    fn render_handles_empty_project_list() {
+        use ratatui::backend::TestBackend;
+
+        let state = DashboardState {
+            tld: "test".into(),
+            http_port: 80,
+            https_port: 443,
+            dashboard_port: 19080,
+            traefik_running: false,
+            dnsmasq_answering: false,
+            cert_sans: vec![],
+            cert_expires: None,
+            projects: vec![],
+            last_refresh: Instant::now(),
+        };
+        let mut list_state = ListState::default();
+
+        let backend = TestBackend::new(100, 25);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| render(f, &state, &mut list_state)).unwrap();
+        let dump: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        assert!(dump.contains("no linked projects"));
+        assert!(dump.contains("stopped"));
+        assert!(dump.contains("no wildcard cert"));
+    }
+
+    #[test]
     fn parse_project_row_detects_host_mode_from_backend_url() {
         let body = r#"
 services:
