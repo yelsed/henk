@@ -34,6 +34,11 @@ pub struct ComposeService {
     /// (`{ target: 80, published: 80 }`) both pass through here.
     #[serde(default)]
     pub ports: Vec<serde_yaml_ng::Value>,
+    /// Raw networks. May be a sequence (`[sail, app]`) or a mapping
+    /// (`{ sail: {}, app: { aliases: [...] } }`). Both forms are widely
+    /// used in real compose files; we accept either.
+    #[serde(default)]
+    pub networks: Option<serde_yaml_ng::Value>,
 }
 
 impl ComposeService {
@@ -63,6 +68,25 @@ impl ComposeService {
             }
         }
         out
+    }
+
+    /// Names of networks this service is on, both the sequence form
+    /// (`networks: [sail, app]`) and the mapping form
+    /// (`networks: { sail: {}, app: { aliases: [...] } }`). Used by
+    /// `henk link` to preserve existing networks in the override.
+    pub fn network_names(&self) -> Vec<String> {
+        let Some(raw) = &self.networks else { return Vec::new(); };
+        match raw {
+            serde_yaml_ng::Value::Sequence(seq) => seq
+                .iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect(),
+            serde_yaml_ng::Value::Mapping(map) => map
+                .iter()
+                .filter_map(|(k, _)| k.as_str().map(|s| s.to_string()))
+                .collect(),
+            _ => Vec::new(),
+        }
     }
 }
 
@@ -230,6 +254,52 @@ services:
         let cf: ComposeFile = serde_yaml_ng::from_str(yaml).unwrap();
         let ports = cf.services["web"].published_ports();
         assert_eq!(ports[0], PublishedPort { host: 8080, container: 80 });
+    }
+
+    #[test]
+    fn network_names_parses_sequence_form() {
+        let yaml = r#"
+services:
+  web:
+    image: nginx
+    networks:
+      - sail
+      - app
+"#;
+        let cf: ComposeFile = serde_yaml_ng::from_str(yaml).unwrap();
+        assert_eq!(
+            cf.services["web"].network_names(),
+            vec!["sail".to_string(), "app".to_string()]
+        );
+    }
+
+    #[test]
+    fn network_names_parses_mapping_form() {
+        let yaml = r#"
+services:
+  web:
+    image: nginx
+    networks:
+      sail: {}
+      app:
+        aliases:
+          - foo.local
+"#;
+        let cf: ComposeFile = serde_yaml_ng::from_str(yaml).unwrap();
+        let mut names = cf.services["web"].network_names();
+        names.sort();
+        assert_eq!(names, vec!["app".to_string(), "sail".to_string()]);
+    }
+
+    #[test]
+    fn network_names_empty_when_field_absent() {
+        let yaml = r#"
+services:
+  web:
+    image: nginx
+"#;
+        let cf: ComposeFile = serde_yaml_ng::from_str(yaml).unwrap();
+        assert!(cf.services["web"].network_names().is_empty());
     }
 
     #[test]

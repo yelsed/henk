@@ -1,5 +1,10 @@
-use anyhow::{Result, bail};
+use anyhow::{Context, Result};
 
-pub async fn run(_host: Option<String>) -> Result<()> {
-    bail!("henk unlink is not yet implemented (M4).");
+use crate::project;
+use crate::runner::SystemRunner;
+
+pub async fn run(host: Option<String>) -> Result<()> {
+    let runner = SystemRunner::new();
+    let cwd = std::env::current_dir().context("could not resolve current working directory")?;
+    project::unlink::run(&runner, &cwd, host).await
 }

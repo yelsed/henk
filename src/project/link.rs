@@ -5,6 +5,7 @@ use std::io::{self, Write};
 use std::path::Path;
 
 use crate::config::Config;
+use crate::project::compose;
 use crate::project::detect::{self, ProjectDetection};
 use crate::project::manifest::{HostEntry, ProjectManifest, ProjectMode};
 use crate::project::{env_file, file_provider, override_file};
@@ -23,8 +24,18 @@ pub async fn run(
         .context("henk has not been initialised yet — run `henk init` first")?;
 
     let slug = derive_slug(project_dir)?;
-    let detection = detect::detect(project_dir, &slug, &cfg.tld)?;
+    let mut detection = detect::detect(project_dir, &slug, &cfg.tld)?;
     print_detection(&detection);
+
+    // Resolve service ambiguity now (before manifest mutation) so the
+    // user picks once. `web_service` is None when detection couldn't
+    // pin one but candidates exist — prompt then.
+    if matches!(detection.mode, ProjectMode::Docker) && detection.web_service.is_none() {
+        if let Some((svc, port)) = pick_web_service(&detection.candidates)? {
+            detection.web_service = Some(svc);
+            detection.web_port = Some(port);
+        }
+    }
 
     let mut manifest = ProjectManifest::load(project_dir)?
         .unwrap_or_else(|| ProjectManifest::new(slug.clone(), detection.mode));
@@ -46,17 +57,51 @@ pub async fn run(
     let host_entry = build_host_entry(&detection, &new_host)?;
     manifest.hosts.push(host_entry);
 
+    // Vite sub-host auto-offer: only on a fresh link (not --add), only
+    // when Vite was detected, and only when no vite-flag host already
+    // lives in the manifest. Wrapped in a Y/n prompt so users who don't
+    // need HTTPS HMR aren't pestered.
+    let vite_offered = !add_only
+        && detection.vite_detected
+        && matches!(detection.mode, ProjectMode::Docker)
+        && !manifest.hosts.iter().any(|h| h.flags.iter().any(|f| f == "vite"));
+    let mut vite_host_added: Option<String> = None;
+    if vite_offered {
+        let vite_host = format!("vite.{new_host}");
+        if !manifest.has_host(&vite_host) && offer_vite_subhost(&vite_host)? {
+            if let (Some(svc), _) = (
+                manifest.hosts.first().and_then(|h| h.service.clone()),
+                (),
+            ) {
+                manifest.hosts.push(HostEntry {
+                    host: vite_host.clone(),
+                    service: Some(svc),
+                    port: Some(5173),
+                    target: None,
+                    flags: vec!["vite".into()],
+                });
+                vite_host_added = Some(vite_host);
+            }
+        }
+    }
+
     // Docker mode: write the override file so the project's web service
-    // joins henk-proxy. Skip for additional hosts that target the same
-    // service we already wrote (override is idempotent anyway, but the
-    // call is not free).
-    if matches!(detection.mode, ProjectMode::Docker) {
+    // joins henk-proxy. Pass through any networks the service already
+    // declares so the override preserves them rather than dropping into
+    // a default-only fallback.
+    //
+    // `--add` skips this — the service already joins henk-proxy from
+    // the original link, and re-running the writer would (a) be a
+    // no-op when nothing changed, or worse, (b) trigger the
+    // henk.override.yml fallback path because our own canonical
+    // compose.override.yml is already there.
+    if matches!(detection.mode, ProjectMode::Docker) && !add_only {
         let service = manifest
             .hosts
             .first()
             .and_then(|h| h.service.clone())
             .context("internal: docker-mode manifest must have a service")?;
-        let existing_networks = vec![]; // TODO M4b: read from compose
+        let existing_networks = read_service_networks(project_dir, &service)?;
         let target = override_file::write(project_dir, &service, &existing_networks)?;
         announce_override_target(&target);
 
@@ -84,6 +129,9 @@ pub async fn run(
     }
 
     print_summary(&manifest, project_dir);
+    if let Some(vite_host) = vite_host_added {
+        print_vite_snippet(&vite_host);
+    }
     Ok(())
 }
 
@@ -118,20 +166,31 @@ fn build_host_entry(detection: &ProjectDetection, host: &str) -> Result<HostEntr
                 .web_service
                 .clone()
                 .context(
-                    "could not auto-detect a web service — multiple candidates. \
-                     The interactive picker lands in M5; for now run `henk link \
-                     --host <h>` after manually editing .henk.toml, or simplify \
-                     your compose file.",
+                    "could not find any web-eligible service in your compose file. \
+                     Make sure at least one service publishes a port on the host \
+                     (e.g. `ports: [\"80:80\"]`), or pass `--host` after a manual \
+                     `.henk.toml` edit.",
                 )?;
             let port = detection
                 .web_port
                 .context("internal: web_port must accompany web_service")?;
+            // Heuristic: `--host vite.<anything>` on a Vite project should
+            // route to :5173 with the vite flag set, even though detection
+            // pinned a different port for the main app. Lets power users
+            // run `henk link --add --host vite.spatiebalk.test` and get
+            // the same wiring the auto-offer would have produced.
+            let is_vite_host = host.starts_with("vite.") && detection.vite_detected;
+            let (port, flags) = if is_vite_host {
+                (5173, vec!["vite".to_string()])
+            } else {
+                (port, vec![])
+            };
             Ok(HostEntry {
                 host: host.to_string(),
                 service: Some(service),
                 port: Some(port),
                 target: None,
-                flags: vec![],
+                flags,
             })
         }
         ProjectMode::Host => {
@@ -300,6 +359,113 @@ fn announce_override_target(target: &override_file::OverrideTarget) {
             );
         }
     }
+}
+
+/// Read the user's compose file and return the networks the chosen
+/// `service` already participates in. Empty vec if compose is missing
+/// or the service doesn't list networks — `override_file::render`
+/// falls back to `default` in that case.
+fn read_service_networks(project_dir: &Path, service: &str) -> Result<Vec<String>> {
+    let Some(compose_path) = compose::find_compose_path(project_dir) else {
+        return Ok(Vec::new());
+    };
+    let cf = compose::read(&compose_path)?;
+    Ok(cf
+        .services
+        .get(service)
+        .map(|s| s.network_names())
+        .unwrap_or_default())
+}
+
+/// Inline picker for the multi-service ambiguous case. Returns the
+/// `(service_name, container_port)` pair chosen by the user. Falls back
+/// to the first candidate when stdin isn't a TTY (CI / piped runs).
+fn pick_web_service(
+    candidates: &[crate::project::detect::ServiceCandidate],
+) -> Result<Option<(String, u16)>> {
+    if candidates.is_empty() {
+        return Ok(None);
+    }
+    if candidates.len() == 1 {
+        let c = &candidates[0];
+        return Ok(Some((c.name.clone(), c.container_port)));
+    }
+    // Non-interactive fallback — pick the first one and print why.
+    use std::io::IsTerminal;
+    if !std::io::stdin().is_terminal() {
+        let c = &candidates[0];
+        eprintln!(
+            "  ! multiple web-eligible services detected; non-TTY input → defaulting \
+             to `{}` on container port {} ({})",
+            c.name, c.container_port, c.rationale
+        );
+        return Ok(Some((c.name.clone(), c.container_port)));
+    }
+
+    let labels: Vec<String> = candidates
+        .iter()
+        .map(|c| format!("{} (:{} → :{}) — {}", c.name, c.host_port, c.container_port, c.rationale))
+        .collect();
+    let selection = inquire::Select::new("Which service should answer this URL?", labels.clone())
+        .with_help_message(
+            "henk couldn't pin a single web service — pick the one users will hit",
+        )
+        .prompt();
+    let chosen_label = match selection {
+        Ok(s) => s,
+        Err(inquire::InquireError::OperationInterrupted)
+        | Err(inquire::InquireError::OperationCanceled) => {
+            bail!("aborted by user");
+        }
+        Err(e) => return Err(e.into()),
+    };
+    let idx = labels.iter().position(|l| l == &chosen_label).unwrap_or(0);
+    let c = &candidates[idx];
+    Ok(Some((c.name.clone(), c.container_port)))
+}
+
+/// Y/n prompt asking whether to add the Vite HMR sub-host. Defaults to
+/// Yes (Vite over HTTPS is what users almost always want here). Quiet
+/// "no" path on non-TTY runs so CI doesn't hang.
+fn offer_vite_subhost(vite_host: &str) -> Result<bool> {
+    use std::io::IsTerminal;
+    if !std::io::stdin().is_terminal() {
+        return Ok(false);
+    }
+    println!();
+    println!("  • Vite detected. Add `{vite_host}` for HTTPS HMR? [Y/n] ");
+    print!("    ");
+    io::stdout().flush().ok();
+    let mut buf = String::new();
+    io::stdin().read_line(&mut buf)?;
+    let trimmed = buf.trim().to_ascii_lowercase();
+    Ok(matches!(trimmed.as_str(), "" | "y" | "yes"))
+}
+
+/// Print the copy-paste snippet for `vite.config.*`. We never auto-edit
+/// Vite configs — they vary too much (TS/JS/MJS, ESM/CJS, defineConfig
+/// vs raw object). User-pastes is the safe path.
+fn print_vite_snippet(vite_host: &str) {
+    use owo_colors::OwoColorize;
+    println!();
+    println!("{}", "Vite HMR — copy/paste:".bold());
+    println!();
+    println!("  // vite.config.{{js,ts,mjs}}");
+    println!("  export default defineConfig({{");
+    println!("    server: {{");
+    println!("      host: '0.0.0.0',");
+    println!("      port: 5173,");
+    println!("      strictPort: true,");
+    println!("      hmr: {{");
+    println!("        host: '{vite_host}',");
+    println!("        protocol: 'wss',");
+    println!("        clientPort: 443,");
+    println!("      }},");
+    println!("      // dev origin for Laravel/PHP-rendered <script src> tags");
+    println!("      origin: 'https://{vite_host}',");
+    println!("    }},");
+    println!("  }})");
+    println!();
 }
 
 fn print_summary(manifest: &ProjectManifest, project_dir: &Path) {
