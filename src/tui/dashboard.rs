@@ -74,22 +74,38 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<()> {
         if key.kind != KeyEventKind::Press {
             continue;
         }
-        match key.code {
-            KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
-            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                return Ok(());
-            }
-            KeyCode::Char('r') => {
+        match decide_key_action(key.code, key.modifiers) {
+            KeyAction::Quit => return Ok(()),
+            KeyAction::Refresh => {
                 state.refresh()?;
             }
-            KeyCode::Up | KeyCode::Char('k') => {
-                move_selection(&mut list_state, &state, -1);
+            KeyAction::MoveSelection(delta) => {
+                move_selection(&mut list_state, &state, delta);
             }
-            KeyCode::Down | KeyCode::Char('j') => {
-                move_selection(&mut list_state, &state, 1);
-            }
-            _ => {}
+            KeyAction::Ignore => {}
         }
+    }
+}
+
+/// Pure function that maps a key + modifier set to the dashboard's
+/// next action. Extracted from the event loop so we can unit-test
+/// keybindings without standing up a real terminal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum KeyAction {
+    Quit,
+    Refresh,
+    MoveSelection(i32),
+    Ignore,
+}
+
+fn decide_key_action(code: KeyCode, mods: KeyModifiers) -> KeyAction {
+    match code {
+        KeyCode::Char('q') | KeyCode::Esc => KeyAction::Quit,
+        KeyCode::Char('c') if mods.contains(KeyModifiers::CONTROL) => KeyAction::Quit,
+        KeyCode::Char('r') => KeyAction::Refresh,
+        KeyCode::Up | KeyCode::Char('k') => KeyAction::MoveSelection(-1),
+        KeyCode::Down | KeyCode::Char('j') => KeyAction::MoveSelection(1),
+        _ => KeyAction::Ignore,
     }
 }
 
@@ -530,6 +546,111 @@ fn parse_project_row(slug: String, body: &str) -> ProjectRow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn key_q_and_esc_and_ctrl_c_quit() {
+        assert_eq!(
+            decide_key_action(KeyCode::Char('q'), KeyModifiers::NONE),
+            KeyAction::Quit
+        );
+        assert_eq!(
+            decide_key_action(KeyCode::Esc, KeyModifiers::NONE),
+            KeyAction::Quit
+        );
+        assert_eq!(
+            decide_key_action(KeyCode::Char('c'), KeyModifiers::CONTROL),
+            KeyAction::Quit
+        );
+        // Plain `c` without ctrl is ignored, not Quit.
+        assert_eq!(
+            decide_key_action(KeyCode::Char('c'), KeyModifiers::NONE),
+            KeyAction::Ignore
+        );
+    }
+
+    #[test]
+    fn key_r_refreshes() {
+        assert_eq!(
+            decide_key_action(KeyCode::Char('r'), KeyModifiers::NONE),
+            KeyAction::Refresh
+        );
+    }
+
+    #[test]
+    fn arrow_and_vim_keys_move_selection() {
+        assert_eq!(
+            decide_key_action(KeyCode::Up, KeyModifiers::NONE),
+            KeyAction::MoveSelection(-1)
+        );
+        assert_eq!(
+            decide_key_action(KeyCode::Char('k'), KeyModifiers::NONE),
+            KeyAction::MoveSelection(-1)
+        );
+        assert_eq!(
+            decide_key_action(KeyCode::Down, KeyModifiers::NONE),
+            KeyAction::MoveSelection(1)
+        );
+        assert_eq!(
+            decide_key_action(KeyCode::Char('j'), KeyModifiers::NONE),
+            KeyAction::MoveSelection(1)
+        );
+    }
+
+    #[test]
+    fn move_selection_wraps_around() {
+        let state = DashboardState {
+            tld: "test".into(),
+            http_port: 80,
+            https_port: 443,
+            dashboard_port: 19080,
+            traefik_running: true,
+            dnsmasq_answering: true,
+            cert_sans: vec![],
+            cert_expires: None,
+            projects: vec![
+                ProjectRow {
+                    slug: "a".into(),
+                    hosts: vec![],
+                    mode: "docker".into(),
+                    backends: vec![],
+                },
+                ProjectRow {
+                    slug: "b".into(),
+                    hosts: vec![],
+                    mode: "docker".into(),
+                    backends: vec![],
+                },
+            ],
+            last_refresh: Instant::now(),
+        };
+        let mut ls = ListState::default();
+        ls.select(Some(0));
+        // Up from 0 wraps to last
+        move_selection(&mut ls, &state, -1);
+        assert_eq!(ls.selected(), Some(1));
+        // Down from last wraps to 0
+        move_selection(&mut ls, &state, 1);
+        assert_eq!(ls.selected(), Some(0));
+    }
+
+    #[test]
+    fn move_selection_no_op_on_empty_projects() {
+        let state = DashboardState {
+            tld: "test".into(),
+            http_port: 80,
+            https_port: 443,
+            dashboard_port: 19080,
+            traefik_running: false,
+            dnsmasq_answering: false,
+            cert_sans: vec![],
+            cert_expires: None,
+            projects: vec![],
+            last_refresh: Instant::now(),
+        };
+        let mut ls = ListState::default();
+        move_selection(&mut ls, &state, 1);
+        assert_eq!(ls.selected(), None);
+    }
 
     #[test]
     fn parse_project_row_extracts_hosts_and_backends() {

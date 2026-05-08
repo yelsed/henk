@@ -25,7 +25,7 @@ use crate::runner::SystemRunner;
 use crate::stack::lifecycle;
 use crate::stack::paths;
 
-pub async fn run(deep: bool, keep_config: bool) -> Result<()> {
+pub async fn run(deep: bool, keep_config: bool, auto_yes: bool) -> Result<()> {
     use owo_colors::OwoColorize;
 
     let runner = SystemRunner::new();
@@ -37,9 +37,12 @@ pub async fn run(deep: bool, keep_config: bool) -> Result<()> {
     let state = StateManifest::load()?;
     print_plan(&state, deep, keep_config);
 
-    if !confirm("Proceed with uninstall?", false)? {
+    if !auto_yes && !confirm("Proceed with uninstall?", false)? {
         println!("Aborted. No changes made.");
         return Ok(());
+    }
+    if auto_yes {
+        println!("  --yes given; proceeding without confirmation.");
     }
 
     println!();
@@ -152,6 +155,31 @@ fn confirm(prompt: &str, default_yes: bool) -> Result<bool> {
     }
 }
 
+/// Decision for whether a file is safe for `henk uninstall` to delete.
+/// Encapsulates the "header check" rule so we can unit-test it without
+/// touching the filesystem or shelling to sudo.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DeleteDecision {
+    /// File doesn't exist — nothing to do.
+    Absent,
+    /// File is ours (header present) — safe to delete.
+    DeleteOurs,
+    /// File exists but doesn't carry our header — must be left alone.
+    RefuseForeign,
+}
+
+pub(crate) fn classify_file_for_delete(path: &Path, body: Option<&str>) -> DeleteDecision {
+    if !path.exists() {
+        return DeleteDecision::Absent;
+    }
+    let body = body.unwrap_or("");
+    if body.contains(HENK_FILE_HEADER) {
+        DeleteDecision::DeleteOurs
+    } else {
+        DeleteDecision::RefuseForeign
+    }
+}
+
 async fn remove_resolver_file(
     runner: &SystemRunner,
     state: &Option<StateManifest>,
@@ -169,17 +197,18 @@ async fn remove_resolver_file(
             // deleting, so this can't clobber a foreign resolver.
             Path::new("/etc/resolver/test").to_path_buf()
         });
-    if !path.exists() {
-        return Ok(());
-    }
-    let body = std::fs::read_to_string(&path).unwrap_or_default();
-    if !body.contains(HENK_FILE_HEADER) {
-        println!(
-            "  {}  {} — header check failed; leaving alone.",
-            "○".bright_black(),
-            path.display()
-        );
-        return Ok(());
+    let body = std::fs::read_to_string(&path).ok();
+    match classify_file_for_delete(&path, body.as_deref()) {
+        DeleteDecision::Absent => return Ok(()),
+        DeleteDecision::RefuseForeign => {
+            println!(
+                "  {}  {} — header check failed; leaving alone.",
+                "○".bright_black(),
+                path.display()
+            );
+            return Ok(());
+        }
+        DeleteDecision::DeleteOurs => {}
     }
     println!("  ⤷ sudo rm {}", path.display());
     let path_str = path.to_str().context("resolver path must be UTF-8")?;
@@ -203,17 +232,18 @@ async fn remove_dnsmasq_dropin(
         return Ok(());
     };
     let Some(path) = &step.path else { return Ok(()) };
-    if !path.exists() {
-        return Ok(());
-    }
-    let body = std::fs::read_to_string(path).unwrap_or_default();
-    if !body.contains(HENK_FILE_HEADER) {
-        println!(
-            "  {}  {} — header check failed; leaving alone.",
-            "○".bright_black(),
-            path.display()
-        );
-        return Ok(());
+    let body = std::fs::read_to_string(path).ok();
+    match classify_file_for_delete(path, body.as_deref()) {
+        DeleteDecision::Absent => return Ok(()),
+        DeleteDecision::RefuseForeign => {
+            println!(
+                "  {}  {} — header check failed; leaving alone.",
+                "○".bright_black(),
+                path.display()
+            );
+            return Ok(());
+        }
+        DeleteDecision::DeleteOurs => {}
     }
     std::fs::remove_file(path)
         .with_context(|| format!("removing {}", path.display()))?;
@@ -261,4 +291,57 @@ async fn uninstall_henk_brew_pkgs(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn classify_returns_absent_for_missing_file() {
+        let dir = TempDir::new().unwrap();
+        let p = dir.path().join("nope");
+        let res = classify_file_for_delete(&p, None);
+        assert_eq!(res, DeleteDecision::Absent);
+    }
+
+    #[test]
+    fn classify_returns_delete_ours_for_henk_authored() {
+        let dir = TempDir::new().unwrap();
+        let p = dir.path().join("ours");
+        std::fs::write(
+            &p,
+            format!("{HENK_FILE_HEADER}\nnameserver 127.0.0.1\n"),
+        )
+        .unwrap();
+        let body = std::fs::read_to_string(&p).unwrap();
+        let res = classify_file_for_delete(&p, Some(&body));
+        assert_eq!(res, DeleteDecision::DeleteOurs);
+    }
+
+    #[test]
+    fn classify_refuses_foreign_resolver_file() {
+        let dir = TempDir::new().unwrap();
+        let p = dir.path().join("foreign");
+        std::fs::write(
+            &p,
+            "# resolver written by Valet\nnameserver 127.0.0.1\nport 35353\n",
+        )
+        .unwrap();
+        let body = std::fs::read_to_string(&p).unwrap();
+        let res = classify_file_for_delete(&p, Some(&body));
+        assert_eq!(res, DeleteDecision::RefuseForeign);
+    }
+
+    #[test]
+    fn classify_refuses_when_body_unreadable_but_file_present() {
+        // Edge case: file exists but read failed (perms, etc.). We
+        // treat the body as empty, which lacks our header → refuse.
+        let dir = TempDir::new().unwrap();
+        let p = dir.path().join("opaque");
+        std::fs::write(&p, "").unwrap();
+        let res = classify_file_for_delete(&p, None);
+        assert_eq!(res, DeleteDecision::RefuseForeign);
+    }
 }

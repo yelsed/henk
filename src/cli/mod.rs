@@ -110,6 +110,9 @@ pub enum Command {
         /// Stop the stack but keep `~/.config/henk/` for a future re-init.
         #[arg(long)]
         keep_config: bool,
+        /// Skip the confirmation prompt. Required for scripted teardown.
+        #[arg(long, short = 'y')]
+        yes: bool,
     },
 
     /// Live TUI: stack health, linked projects, certificate state.
@@ -130,8 +133,8 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
         Some(Command::Down) => down::run().await,
         Some(Command::Doctor { repair }) => doctor::run(repair).await,
         Some(Command::Update { check }) => update::run(check).await,
-        Some(Command::Uninstall { deep, keep_config }) => {
-            uninstall::run(deep, keep_config).await
+        Some(Command::Uninstall { deep, keep_config, yes }) => {
+            uninstall::run(deep, keep_config, yes).await
         }
         Some(Command::Dashboard) => dashboard::run().await,
     }

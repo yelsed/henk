@@ -73,3 +73,72 @@ pub fn is_reserved(tld: &str) -> bool {
     let lower = tld.trim_start_matches('.').to_ascii_lowercase();
     RESERVED_TLDS.iter().any(|r| *r == lower)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn defaults_to_test_when_nothing_present() {
+        let c = decide(None, false, false);
+        assert_eq!(c.value(), "test");
+        assert_eq!(c.reason(), TldReason::Default);
+    }
+
+    #[test]
+    fn falls_back_to_henk_when_valet_present() {
+        let c = decide(None, true, false);
+        assert_eq!(c.value(), "henk");
+        assert_eq!(c.reason(), TldReason::ValetHerdFallback);
+    }
+
+    #[test]
+    fn falls_back_to_henk_when_herd_present() {
+        let c = decide(None, false, true);
+        assert_eq!(c.value(), "henk");
+        assert_eq!(c.reason(), TldReason::ValetHerdFallback);
+    }
+
+    #[test]
+    fn falls_back_to_henk_when_both_present() {
+        let c = decide(None, true, true);
+        assert_eq!(c.value(), "henk");
+        assert_eq!(c.reason(), TldReason::ValetHerdFallback);
+    }
+
+    #[test]
+    fn user_override_wins_over_valet_detection() {
+        // Even with Valet on the box, an explicit `--tld foo` is honoured.
+        let c = decide(Some(".foo"), true, false);
+        assert_eq!(c.value(), "foo");
+        assert_eq!(c.reason(), TldReason::UserOverride);
+    }
+
+    #[test]
+    fn user_override_strips_leading_dot_and_lowercases() {
+        let c = decide(Some(".LOCAL"), false, false);
+        assert_eq!(c.value(), "local");
+    }
+
+    #[test]
+    fn is_reserved_flags_localhost_invalid() {
+        assert!(is_reserved("localhost"));
+        assert!(is_reserved(".localhost"));
+        assert!(is_reserved("invalid"));
+        assert!(!is_reserved("test"));
+        assert!(!is_reserved("henk"));
+    }
+
+    #[test]
+    fn summary_string_renders_chosen_tld() {
+        let c = decide(None, false, false);
+        let s = c.summary();
+        assert!(s.contains(".test"));
+        assert!(s.contains("default"));
+
+        let c = decide(None, true, false);
+        let s = c.summary();
+        assert!(s.contains(".henk"));
+        assert!(s.contains("Valet"));
+    }
+}
