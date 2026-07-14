@@ -6,14 +6,20 @@
 # Accept header.
 #
 # Three callers land here:
-#   - the `henk-errors` middleware, which fetches `/{status}.html` after a
+#   - the `henk-errors` middleware, which fetches `/e/{status}.html` after a
 #     backend returns a 5xx;
-#   - the per-project `failover` fallback, which forwards the visitor's
-#     original path when the backend's health check says it's down;
 #   - the `henk-catchall` router, whose `replacePath` sends unlinked hostnames
-#     to `/unlinked`.
-# Every one of them must get a real error status — a 200 here would tell the
-# browser (and any script) that a dead app is fine.
+#     to `/e/unlinked`;
+#   - the per-project `failover` fallback, which forwards the visitor's own
+#     original path when the backend's health check says it's down.
+#
+# The first two are henk talking to itself, and they are namespaced under `/e/`
+# precisely because the third is not: the failover hands us whatever the visitor
+# asked for, so an unprefixed `/unlinked` or `/500.html` would let any visitor to
+# a down site pick which page they were shown.
+#
+# Every caller must get a real error status — a 200 here would tell the browser
+# (and any script) that a dead app is fine.
 
 # Browsers ask for text/html; curl, fetch and coding agents send `*/*` and get
 # prose they can actually read instead of a document full of markup.
@@ -23,15 +29,19 @@ map $http_accept $henk_ext {
     ""               html;
 }
 
+# Matched against `$request_uri`, not `$uri`: the `error_page` redirect below is
+# internal, and it rewrites `$uri` to `/henk-page` before this map is ever read.
+# `$request_uri` keeps what the caller actually asked for — at the cost of
+# carrying the query string, hence the `(\?|$)` tail on every pattern.
 map $request_uri $henk_body {
-    default              down;
-    "~^/unlinked$"       unlinked;
+    default                       down;
+    "~^/e/unlinked(\?|$)"         unlinked;
     # Traefik answers 502 when it cannot connect and 504 when the backend times
     # out — both mean "not answering". A 500 comes from an app that did answer.
     # A dockerised project behind its own nginx can blur this; the split is a
     # heuristic, not a guarantee.
-    "~^/50[234]\.html$"  down;
-    "~^/5\d\d\.html$"    app-error;
+    "~^/e/50[234]\.html(\?|$)"    down;
+    "~^/e/5\d\d\.html(\?|$)"      app-error;
 }
 
 server {
@@ -49,7 +59,7 @@ server {
         try_files /$henk_body.$henk_ext =503;
     }
 
-    location = /unlinked {
+    location = /e/unlinked {
         return 404;
     }
 

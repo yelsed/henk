@@ -275,7 +275,6 @@ mod tests {
             rendered.contains("map $http_accept $henk_ext"),
             "html for browsers, text for curl and coding agents"
         );
-        assert!(rendered.contains("map $request_uri $henk_body"));
         assert!(rendered.contains("try_files /$henk_body.$henk_ext"));
         assert!(
             rendered.contains("Vary Accept"),
@@ -288,6 +287,39 @@ mod tests {
                 page.name
             );
         }
+    }
+
+    #[test]
+    fn page_selection_survives_a_query_string() {
+        // Two traps, one line: `$uri` is rewritten to `/henk-page` by the
+        // internal error_page redirect before the map is read, and `$request_uri`
+        // carries `?utm=x` into the match. So: $request_uri, matched loosely.
+        let rendered = render(ERRORPAGE_NGINX_TMPL, &vars_from(&cfg()));
+        assert!(rendered.contains("map $request_uri $henk_body"));
+        for pattern in ["/e/unlinked", "/e/50[234]\\.html", "/e/5\\d\\d\\.html"] {
+            assert!(
+                rendered.contains(&format!("{pattern}(\\?|$)")),
+                "{pattern} must tolerate a query string"
+            );
+        }
+    }
+
+    #[test]
+    fn henk_owned_paths_are_namespaced_away_from_visitor_paths() {
+        // The failover fallback forwards the visitor's own path here, so without
+        // the prefix a visitor to a down site could ask for `/unlinked` or
+        // `/500.html` and choose which page they were shown.
+        let rendered = render(ERRORPAGE_NGINX_TMPL, &vars_from(&cfg()));
+        assert!(rendered.contains("~^/e/unlinked"));
+        assert!(rendered.contains("~^/e/50[234]\\.html"));
+        assert!(rendered.contains("location = /e/unlinked"));
+
+        let dynamic = render(DYNAMIC_TMPL, &vars_from(&cfg()));
+        assert!(
+            dynamic.contains("query: \"/e/{status}.html\""),
+            "the errors middleware fetches the namespaced path"
+        );
+        assert!(dynamic.contains("path: /e/unlinked"));
     }
 
     #[test]
@@ -345,12 +377,12 @@ mod tests {
         assert!(rendered.contains("henk-catchall-http:"));
         assert!(rendered.contains("priority: 1"));
         assert!(
-            rendered.contains("path: /unlinked"),
-            "replacePath gives nginx a path to key the unlinked page off"
-        );
-        assert!(
             rendered.contains("henk-https-redirect:"),
             "the per-host routers reference it by name"
+        );
+        assert!(
+            rendered.contains("henk-dashboard-http:"),
+            "the dashboard needs a :80 router too, or the catchall calls it unlinked"
         );
         assert!(!rendered.contains("{{"));
     }

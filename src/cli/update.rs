@@ -103,6 +103,11 @@ pub async fn run(check: bool) -> Result<()> {
         }
         Ok(None) => {
             println!("  {}  Already on the latest version.", "✓".bright_green());
+            // The binary can reach "latest" without henk having installed it —
+            // Homebrew, the installer script, `cargo install`. The stack is then
+            // still running whatever the *previous* binary rendered, and `up` is
+            // a no-op when it isn't.
+            upgrade_stack()?;
         }
         Err(e) => {
             // Surface the error but don't hard-fail — the user can still

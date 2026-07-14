@@ -58,21 +58,20 @@ fn record_stack_version() -> Result<()> {
 
 /// `henk init` (full mode). Drives the entire first-run setup, in order:
 ///
-/// 1. Render the stack templates from `cfg`.
-/// 2. Ensure mkcert's local CA is installed in the system keychain.
-/// 3. Generate the wildcard certificate for `*.<tld>`.
-/// 4. Write `/etc/resolver/<tld>` with sudo (idempotent — skipped if the
+/// 1. Ensure mkcert's local CA is installed in the system keychain.
+/// 2. Generate the wildcard certificate for `*.<tld>`.
+/// 3. Write `/etc/resolver/<tld>` with sudo (idempotent — skipped if the
 ///    correct contents are already in place under our header).
-/// 5. Ensure the `henk-proxy` Docker network exists.
-/// 6. `docker compose up -d` for the global stack.
+/// 4. Hand off to `up`, which renders the templates, migrates any project
+///    routing that predates them, starts the stack, and records the applied
+///    `STACK_VERSION`.
 ///
-/// Each step is idempotent; rerunning `henk init` is safe.
+/// Each step is idempotent; rerunning `henk init` is safe — and because step 4
+/// is the same `up` everything else goes through, re-running it on an existing
+/// install upgrades that install rather than half-rendering it.
 pub async fn init_full(runner: &SystemRunner, cfg: &Config) -> Result<()> {
     require_docker(runner).await?;
     require_ports_free(runner, cfg).await?;
-
-    println!("⤷ rendering stack templates ...");
-    templates::render_all(cfg)?;
 
     println!("⤷ ensuring mkcert's local CA is installed (may prompt) ...");
     certs::ensure_ca_installed(runner).await?;
@@ -93,14 +92,8 @@ pub async fn init_full(runner: &SystemRunner, cfg: &Config) -> Result<()> {
     );
     resolver::ensure_written(runner, &cfg.tld).await?;
 
-    println!("⤷ ensuring docker network `{PROXY_NETWORK}` exists ...");
-    ensure_network(runner).await?;
-
-    println!("⤷ starting global stack ...");
-    compose_up(runner).await?;
-
-    print_up_summary(cfg);
-    Ok(())
+    println!("⤷ rendering stack templates and starting the global stack ...");
+    up(runner, cfg).await
 }
 
 fn print_up_summary(cfg: &Config) {

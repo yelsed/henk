@@ -15,6 +15,16 @@ http:
       tls: {}
       service: api@internal
 
+    # The dashboard is a linked host like any other: without its own :80 router
+    # it falls through to the catchall and reports itself unlinked.
+    henk-dashboard-http:
+      rule: "Host(`traefik.{{TLD}}`)"
+      entryPoints:
+        - web
+      middlewares:
+        - henk-https-redirect
+      service: api@internal
+
     # dnsmasq resolves every *.{{TLD}} name, linked or not, so a typo'd or
     # never-linked host still reaches Traefik — which would answer its own bare
     # 404. This catches those and explains what happened. Priority 1 is the
@@ -57,13 +67,16 @@ http:
         status:
           - "500-599"
         service: henk-error-pages
-        query: "/{status}.html"
+        query: "/e/{status}.html"
 
     # The error-pages nginx keys off the path to pick a page; the catchall
-    # router has no meaningful path of its own, so give it one.
+    # router has no meaningful path of its own, so give it one. The `/e/` prefix
+    # keeps henk's own paths out of reach of a visitor's: the failover fallback
+    # forwards whatever path the visitor asked for, so an unprefixed `/unlinked`
+    # would let anyone on a down site summon the wrong page.
     henk-unlinked:
       replacePath:
-        path: /unlinked
+        path: /e/unlinked
 
     # Applied by each linked project's `-http` router, so only hostnames henk
     # knows about get upgraded to https (see the note in traefik.yml).
