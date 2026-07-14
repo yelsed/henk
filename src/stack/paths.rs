@@ -42,3 +42,19 @@ pub fn dynamic_projects_dir() -> Result<PathBuf> {
 pub fn traefik_dynamic_path() -> Result<PathBuf> {
     Ok(dynamic_projects_dir()?.join("_henk.yml"))
 }
+
+/// `~/.config/henk/errorpages/` — the pages served when a request can't reach a
+/// healthy backend. Mounted into the error-pages container as its web root.
+pub fn errorpages_dir() -> Result<PathBuf> {
+    Ok(config_dir()?.join("errorpages"))
+}
+
+/// A file inside `~/.config/henk/errorpages/`, e.g. `down.html`, `down.txt`.
+pub fn errorpage_path(file: &str) -> Result<PathBuf> {
+    Ok(errorpages_dir()?.join(file))
+}
+
+/// `~/.config/henk/errorpages/nginx.conf`.
+pub fn errorpage_nginx_path() -> Result<PathBuf> {
+    errorpage_path("nginx.conf")
+}

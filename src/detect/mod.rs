@@ -8,6 +8,7 @@ use anyhow::Result;
 
 use crate::runner::SystemRunner;
 
+pub mod backend;
 mod brew;
 mod coexistence;
 mod docker;
@@ -37,6 +38,20 @@ pub enum Status {
     Info,
 }
 
+impl Status {
+    /// The status glyph, coloured. Shared so every surface (detection table,
+    /// doctor, status) speaks the same visual language.
+    pub fn glyph(self) -> String {
+        use owo_colors::OwoColorize;
+        match self {
+            Status::Ok => "✓".green().to_string(),
+            Status::Warn => "!".yellow().to_string(),
+            Status::Block => "✗".red().to_string(),
+            Status::Info => "i".bright_black().to_string(),
+        }
+    }
+}
+
 /// The whole detection report.
 #[derive(Debug, Clone)]
 pub struct DetectionReport {
@@ -63,12 +78,7 @@ impl DetectionReport {
         let max_name = self.items.iter().map(|i| i.name.len()).max().unwrap_or(0);
 
         for item in &self.items {
-            let icon = match item.status {
-                Status::Ok => "✓".green().to_string(),
-                Status::Warn => "!".yellow().to_string(),
-                Status::Block => "✗".red().to_string(),
-                Status::Info => "i".bright_black().to_string(),
-            };
+            let icon = item.status.glyph();
             let name = format!("{:width$}", item.name, width = max_name);
             println!("  {icon}  {name}   {}", item.detail);
         }

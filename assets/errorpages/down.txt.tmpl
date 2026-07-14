@@ -1,0 +1,19 @@
+HENK: this site is linked, but its dev server isn't answering.
+
+Routing and the certificate are fine — henk reached the address you linked
+and got nothing usable back. It's almost always one of these three.
+
+  1. The dev server isn't running.
+     Start it: npm run dev / sail up / docker compose up -d
+
+  2. It's bound to localhost only.
+     Traefik runs in Docker and reaches your machine over IPv4 via
+     host.docker.internal, so a server on 127.0.0.1 or [::1] is invisible
+     to it. Restart on 0.0.0.0:
+     nuxt dev --host / vite --host / next dev -H 0.0.0.0
+
+  3. It rejects the .{{TLD}} hostname.
+     Vite-based apps refuse unknown hosts with a 403. Add this host to
+     server.allowedHosts in your Vite config.
+
+Don't guess — `henk doctor` probes the port and tells you which one it is.

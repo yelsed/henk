@@ -8,8 +8,23 @@ api:
 entryPoints:
   web:
     address: ":80"
+    # Default middleware: turn raw Traefik 5xx (e.g. a linked container that is
+    # down → 502 Bad Gateway) into a friendly branded page. Defined in the file
+    # provider as `henk-errors` (see dynamic.yml), served by the error-pages
+    # container in compose.yml.
+    http:
+      middlewares:
+        - henk-errors@file
+    # NOTE: no `redirections` here. http → https is done with a per-host router
+    # (see `henk link`) instead, because an entrypoint-wide redirect also grabs
+    # hostnames that aren't linked and bounces them to https — where the
+    # certificate can't cover them, so a typo dies in the TLS handshake instead
+    # of reaching the "nothing is linked" page. See dynamic.yml's henk-catchall.
   websecure:
     address: ":443"
+    http:
+      middlewares:
+        - henk-errors@file
 
 providers:
   # File provider only. The docker provider is intentionally NOT enabled —

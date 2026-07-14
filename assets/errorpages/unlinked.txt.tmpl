@@ -1,0 +1,16 @@
+HENK: nothing is linked to this hostname.
+
+henk answered, so the stack is up — it just has no project registered under
+this name. Every *.{{TLD}} name resolves to henk whether or not it's linked,
+so the hostname working proves nothing.
+
+  1. A typo in the hostname.
+     `henk status` lists every linked project and the .{{TLD}} host it
+     answers on.
+
+  2. The project was never linked.
+     Run `henk link` in the project directory. For an extra hostname on an
+     already-linked project:
+     henk link --add --host <sub> --port <port>
+
+`henk status` shows what's linked and where it points.

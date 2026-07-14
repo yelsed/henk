@@ -1,6 +1,9 @@
-//! `henk update` — self-update from GitHub Releases via axoupdater.
+//! `henk update` — self-update from GitHub Releases via axoupdater, then bring
+//! the stack up to whatever the new binary ships.
 //!
-//! `henk update`         — check for a newer version and install it if found.
+//! `henk update`         — check for a newer version, install it if found, and
+//!                         re-render + restart the stack so the running proxy
+//!                         matches the new binary.
 //! `henk update --check` — print whether a newer version is available without
 //!                         installing anything.
 //!
@@ -13,9 +16,10 @@
 //! release source. When the receipt is absent (e.g. the binary was built from
 //! source), we fall back gracefully rather than panicking.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use axoupdater::{AxoUpdater, UpdateRequest};
 use owo_colors::OwoColorize;
+use std::process::Command;
 
 use crate::manifest::StateManifest;
 
@@ -95,6 +99,7 @@ pub async fn run(check: bool) -> Result<()> {
                 "✓".bright_green(),
                 result.new_version.to_string().bold()
             );
+            upgrade_stack()?;
         }
         Ok(None) => {
             println!("  {}  Already on the latest version.", "✓".bright_green());
@@ -114,4 +119,38 @@ pub async fn run(check: bool) -> Result<()> {
 
     println!();
     Ok(())
+}
+
+/// A new binary ships new stack templates, but the containers keep running the
+/// ones they booted with — an updated henk with a v-old proxy routes by the old
+/// rules until someone re-renders. So bring the stack up as part of updating.
+///
+/// This has to be done by the *new* binary: the process running right now is the
+/// old one, and it can only ever render the templates compiled into it. The
+/// installer replaced the file at our own path, so re-invoking it runs the new
+/// build.
+fn upgrade_stack() -> Result<()> {
+    let exe = std::env::current_exe().context("locating the henk binary we were run from")?;
+
+    println!();
+    println!(
+        "  {}  Bringing the stack up to date ...",
+        "⤷".bright_black()
+    );
+    println!();
+
+    let status = Command::new(&exe).arg("up").status();
+
+    match status {
+        Ok(status) if status.success() => Ok(()),
+        _ => {
+            println!(
+                "  {}  The new henk is installed, but the stack wasn't upgraded.",
+                "!".yellow()
+            );
+            println!("  Run {} to finish.", "henk up".bold());
+            println!();
+            Ok(())
+        }
+    }
 }

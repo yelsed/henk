@@ -126,11 +126,11 @@ henk prints this reminder at the end of every host-mode link. See [docs/linking-
 | `henk unlink` | Remove the current project from routing. |
 | `henk unlink <host>` | Remove a single hostname from the current project. |
 | `henk status` | Show stack health, linked projects, and cert state. |
-| `henk up` | Start the global Traefik + dnsmasq stack. |
+| `henk up` | Start the global stack; re-render and migrate it if this henk ships a newer one. |
 | `henk down` | Stop the global stack (and keep it stopped). |
 | `henk doctor` | Run all detection + health checks. |
 | `henk doctor --repair` | Re-run failed init steps surgically. |
-| `henk update` | Self-update the henk binary from GitHub Releases. |
+| `henk update` | Self-update the henk binary, then bring the stack up to match. |
 | `henk update --check` | Print whether a newer version is available. |
 | `henk dashboard` | Live TUI: stack health, linked projects, cert state. |
 | `henk uninstall` | Remove henk's files; keeps Homebrew packages. |

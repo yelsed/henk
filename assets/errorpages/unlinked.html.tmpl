@@ -1,0 +1,31 @@
+<main>
+  <p class="eyebrow">henk</p>
+  <h1>Nothing is linked to this hostname.</h1>
+  <p class="lede">
+    henk answered, so the stack is up — it just has no project registered under this name.
+    Every <code>*.{{TLD}}</code> name resolves to henk whether or not it's linked, so the
+    hostname working proves nothing.
+  </p>
+
+  <h2>Most likely causes</h2>
+  <ol>
+    <li>
+      <strong>A typo in the hostname.</strong>
+      <p>
+        <code>henk status</code> lists every linked project and the <code>.{{TLD}}</code>
+        host it answers on.
+      </p>
+    </li>
+    <li>
+      <strong>The project was never linked.</strong>
+      <p>
+        Run <code>henk link</code> in the project directory. For an extra hostname on an
+        already-linked project, <code>henk link --add --host &lt;sub&gt; --port &lt;port&gt;</code>.
+      </p>
+    </li>
+  </ol>
+
+  <p class="fix">
+    <strong><code>henk status</code></strong> shows what's linked and where it points.
+  </p>
+</main>

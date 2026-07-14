@@ -8,6 +8,7 @@
 use anyhow::Result;
 
 use crate::config::Config;
+use crate::consts::STACK_VERSION;
 use crate::detect;
 use crate::manifest::{StateManifest, StepState, steps};
 use crate::runner::SystemRunner;
@@ -31,6 +32,8 @@ pub async fn run(repair: bool) -> Result<()> {
 
     let report = detect::run_all(&runner, None).await?;
     report.print();
+
+    print_backend_health(&runner).await?;
 
     let state = StateManifest::load()?;
     let Some(state) = state else {
@@ -71,7 +74,31 @@ pub async fn run(repair: bool) -> Result<()> {
         eprintln!("  ✗ {e}");
         return Err(e);
     }
+    // `up` re-rendered the templates and recorded the new stack version, so the
+    // next doctor run won't re-report the drift it just fixed.
     println!("  {}  stack rebuilt and brought up.", "✓".green());
+    Ok(())
+}
+
+/// Can Traefik actually reach each linked project's dev server? This is a
+/// different axis from drift (state.json vs. filesystem), so it gets its own
+/// section rather than being folded into `collect_drift`.
+async fn print_backend_health(runner: &SystemRunner) -> Result<()> {
+    use owo_colors::OwoColorize;
+
+    let items = detect::backend::probe_all(runner).await?;
+    if items.is_empty() {
+        return Ok(());
+    }
+
+    println!("{}", "Linked projects".bold());
+    println!();
+    let width = items.iter().map(|i| i.host.len()).max().unwrap_or(0);
+    for item in &items {
+        let host = format!("{:width$}", item.host, width = width);
+        println!("  {}  {host}   {}", item.status.glyph(), item.detail);
+    }
+    println!();
     Ok(())
 }
 
@@ -119,6 +146,14 @@ fn print_state_summary(state: &StateManifest) {
 
 fn collect_drift(state: &StateManifest, cfg: &Config) -> Vec<String> {
     let mut out = Vec::new();
+
+    if state.stack_version < STACK_VERSION {
+        out.push(format!(
+            "stack templates on disk are v{} but this henk ships v{STACK_VERSION} — \
+             re-render to pick up the new stack",
+            state.stack_version
+        ));
+    }
 
     if let Some(step) = state.steps.get(steps::WILDCARD_CERT)
         && let Some(p) = &step.path

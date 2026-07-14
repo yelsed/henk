@@ -9,7 +9,8 @@ use anyhow::{Context, Result};
 use std::fs;
 use std::path::PathBuf;
 
-use crate::consts::{HENK_FILE_HEADER, PROXY_NETWORK};
+use crate::consts::{HENK_FILE_HEADER, PROJECT_MANIFEST_VERSION, PROXY_NETWORK};
+use crate::detect::backend;
 use crate::project::manifest::{HostEntry, ProjectManifest, ProjectMode};
 use crate::stack::paths;
 
@@ -52,6 +53,80 @@ pub fn remove(slug: &str) -> Result<()> {
     Ok(())
 }
 
+/// Rewrite any project entry that predates the current rendering — one still
+/// pointing straight at a `loadBalancer` (no health check, no error-page
+/// fallback), or one with no `-http` router (so http:// requests fall through to
+/// the catchall and get told, wrongly, that the project isn't linked).
+///
+/// Without this, everything linked before those changes keeps the old behaviour
+/// forever: `.henk.toml` lives inside each project and henk keeps no global index
+/// of where those projects are, so nothing else would ever re-render these files.
+/// We reconstruct the manifest from the entry itself — the per-host `target` is
+/// all `render` needs.
+pub fn migrate_legacy_entries() -> Result<Vec<String>> {
+    let dyn_dir = paths::config_dir()?.join("dynamic");
+    if !dyn_dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut migrated = Vec::new();
+    for entry in fs::read_dir(&dyn_dir).with_context(|| format!("reading {}", dyn_dir.display()))? {
+        let path = entry?.path();
+        if path.extension().and_then(|s| s.to_str()) != Some("yml") {
+            continue;
+        }
+        let Some(slug) = path.file_stem().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        // `_henk.yml` is the stack's own dashboard / TLS config.
+        if slug.starts_with('_') {
+            continue;
+        }
+        let body = fs::read_to_string(&path).unwrap_or_default();
+        let is_current = body.contains("failover:") && body.contains("henk-https-redirect");
+        if is_current {
+            continue;
+        }
+        let Some(manifest) = manifest_from_entry(slug, &body) else {
+            continue;
+        };
+        write(&manifest)?;
+        migrated.push(slug.to_string());
+    }
+    Ok(migrated)
+}
+
+/// Rebuild a manifest from a rendered entry. Only what `render` reads has to
+/// survive the round-trip: the hosts, in order, each with its backend as an
+/// explicit `target`. Mode is therefore irrelevant — `target` always wins.
+fn manifest_from_entry(slug: &str, body: &str) -> Option<ProjectManifest> {
+    let hosts: Vec<HostEntry> = backend::parse_linked_hosts(slug, body)
+        .into_iter()
+        .map(|linked| HostEntry {
+            host: linked.host.clone(),
+            service: None,
+            port: None,
+            target: Some(linked.url),
+            health_path: None,
+            // Preserve the vite sub-host's router name (`<slug>-vite`).
+            flags: if linked.host.starts_with("vite.") {
+                vec!["vite".to_string()]
+            } else {
+                vec![]
+            },
+        })
+        .collect();
+    if hosts.is_empty() {
+        return None;
+    }
+    Some(ProjectManifest {
+        schema_version: PROJECT_MANIFEST_VERSION,
+        slug: slug.to_string(),
+        mode: ProjectMode::Host,
+        hosts,
+    })
+}
+
 fn render(manifest: &ProjectManifest) -> String {
     let mut out = String::new();
     out.push_str(HENK_FILE_HEADER);
@@ -68,14 +143,48 @@ fn render(manifest: &ProjectManifest) -> String {
         out.push_str("      entryPoints:\n        - websecure\n");
         out.push_str("      tls: {}\n");
         out.push_str(&format!("      service: {router_name}\n"));
+
+        // The same host on :80, redirected to https. This is deliberately a
+        // per-host router rather than a redirect on the `web` entrypoint: an
+        // entrypoint-wide redirect also catches hostnames that aren't linked at
+        // all, bouncing them to https where the certificate can't cover them —
+        // a typo would fail the TLS handshake instead of reaching the "nothing
+        // is linked" page. Redirecting only the hosts henk actually knows about
+        // leaves :80 free for the catchall to answer readably.
+        out.push_str(&format!("    {router_name}-http:\n"));
+        out.push_str(&format!("      rule: \"Host(`{}`)\"\n", host.host));
+        out.push_str("      entryPoints:\n        - web\n");
+        out.push_str("      middlewares:\n        - henk-https-redirect\n");
+        out.push_str(&format!("      service: {router_name}\n"));
     }
 
     out.push_str("  services:\n");
     for (i, host) in manifest.hosts.iter().enumerate() {
         let svc_name = router_name(&manifest.slug, host, i);
-        out.push_str(&format!("    {svc_name}:\n"));
-        out.push_str("      loadBalancer:\n        servers:\n");
+        let main = format!("{svc_name}-main");
         let url = backend_url(manifest, host);
+
+        // The router points at a `failover` service: while the real backend is
+        // healthy it serves it; when the backend is down/unreachable Traefik
+        // routes to `henk-error-pages` (defined in the stack's dynamic config)
+        // so the visitor gets a branded "site unavailable" page instead of a raw
+        // 502 Bad Gateway. The `errors` middleware can't cover this case — it
+        // only catches error *responses* a live backend returns, not a dead one.
+        out.push_str(&format!("    {svc_name}:\n"));
+        out.push_str("      failover:\n");
+        out.push_str(&format!("        service: {main}\n"));
+        out.push_str("        fallback: henk-error-pages\n");
+
+        // The real backend, with an active health check that drives the failover.
+        // The probed path must return 2xx/3xx or Traefik counts the backend as
+        // down — apps that 401/404 on `/` set `health_path` in `.henk.toml`.
+        out.push_str(&format!("    {main}:\n"));
+        out.push_str("      loadBalancer:\n");
+        out.push_str("        healthCheck:\n");
+        out.push_str(&format!("          path: \"{}\"\n", host.health_path()));
+        out.push_str("          interval: \"10s\"\n");
+        out.push_str("          timeout: \"3s\"\n");
+        out.push_str("        servers:\n");
         out.push_str(&format!("          - url: \"{url}\"\n"));
     }
     out
@@ -136,6 +245,49 @@ mod tests {
     use super::*;
     use crate::project::manifest::ProjectMode;
 
+    #[test]
+    fn legacy_entry_regains_failover_health_check_and_router_names() {
+        // A file rendered before the failover work: router straight at a
+        // loadBalancer. Re-rendering it must keep every host and router name
+        // stable while adding the health check and the error-page fallback.
+        let legacy = r#"
+http:
+  routers:
+    spatiebalk:
+      rule: "Host(`spatiebalk.test`)"
+      service: spatiebalk
+    spatiebalk-vite:
+      rule: "Host(`vite.spatiebalk.test`)"
+      service: spatiebalk-vite
+  services:
+    spatiebalk:
+      loadBalancer:
+        servers:
+          - url: "http://laravel.test:80"
+    spatiebalk-vite:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:5173"
+"#;
+        let manifest = manifest_from_entry("spatiebalk", legacy).expect("parses");
+        let out = render(&manifest);
+
+        assert!(out.contains("    spatiebalk:\n"), "router name preserved");
+        assert!(
+            out.contains("    spatiebalk-vite:\n"),
+            "vite router name preserved"
+        );
+        assert!(out.contains("http://laravel.test:80"), "backend preserved");
+        assert!(out.contains("http://host.docker.internal:5173"));
+        assert!(out.contains("fallback: henk-error-pages"));
+        assert!(out.contains("healthCheck:"));
+    }
+
+    #[test]
+    fn migration_reports_no_hosts_for_an_unparseable_entry() {
+        assert!(manifest_from_entry("broken", "not: a router file").is_none());
+    }
+
     fn docker_manifest_with_host_and_vite() -> ProjectManifest {
         ProjectManifest {
             schema_version: 1,
@@ -147,6 +299,7 @@ mod tests {
                     service: Some("laravel.test".into()),
                     port: Some(80),
                     target: None,
+                    health_path: None,
                     flags: vec![],
                 },
                 HostEntry {
@@ -154,6 +307,7 @@ mod tests {
                     service: Some("laravel.test".into()),
                     port: Some(5173),
                     target: None,
+                    health_path: None,
                     flags: vec!["vite".into()],
                 },
             ],
@@ -170,9 +324,41 @@ mod tests {
         // Two routers + two services
         assert!(out.contains("    spatiebalk:\n"));
         assert!(out.contains("    spatiebalk-vite:\n"));
-        // Backend URLs: service name on the shared network
+        // Backend URLs: service name on the shared network, under the `-main`
+        // primary that the failover wraps.
         assert!(out.contains("http://laravel.test:80"));
         assert!(out.contains("http://laravel.test:5173"));
+        // Each router service is a failover → error-pages, with a health-checked
+        // primary, so a down backend serves the branded page (not a raw 502).
+        assert!(out.contains("failover:"), "router service is a failover");
+        assert!(out.contains("fallback: henk-error-pages"));
+        assert!(
+            out.contains("    spatiebalk-main:\n"),
+            "health-checked primary"
+        );
+        assert!(out.contains("healthCheck:"));
+    }
+
+    #[test]
+    fn every_host_also_gets_an_http_router_that_redirects_to_https() {
+        // Without this, `curl http://spatiebalk.test` matches no router and gets
+        // Traefik's bare 404 — even with the app healthy. It has to be per-host
+        // rather than an entrypoint-wide redirect, or unlinked hosts get bounced
+        // to https too and die on the certificate instead of reaching the
+        // "nothing is linked" page.
+        let out = render(&docker_manifest_with_host_and_vite());
+        assert!(out.contains("    spatiebalk-http:\n"));
+        assert!(out.contains("    spatiebalk-vite-http:\n"));
+        assert_eq!(
+            out.matches("- henk-https-redirect").count(),
+            2,
+            "one redirect per linked host"
+        );
+        assert_eq!(
+            out.matches("- web\n").count(),
+            2,
+            "the http routers listen on :80"
+        );
     }
 
     #[test]
@@ -186,6 +372,7 @@ mod tests {
                 service: None,
                 port: None,
                 target: Some("http://host.docker.internal:3000".into()),
+                health_path: None,
                 flags: vec![],
             }],
         };
@@ -206,6 +393,7 @@ mod tests {
                     service: Some("hub".into()),
                     port: Some(8055),
                     target: None,
+                    health_path: None,
                     flags: vec![],
                 },
                 HostEntry {
@@ -213,6 +401,7 @@ mod tests {
                     service: Some("mailhog".into()),
                     port: Some(8025),
                     target: None,
+                    health_path: None,
                     flags: vec![],
                 },
             ],

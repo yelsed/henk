@@ -15,6 +15,71 @@ http:
       tls: {}
       service: api@internal
 
+    # dnsmasq resolves every *.{{TLD}} name, linked or not, so a typo'd or
+    # never-linked host still reaches Traefik — which would answer its own bare
+    # 404. This catches those and explains what happened. Priority 1 is the
+    # lowest there is: a project router (default priority = rule length) always
+    # wins.
+    #
+    # Two routers, because a router with `tls` set only ever handles https.
+    # The http one is the only place an unknown host can actually be served: the
+    # wildcard cert covers *.{{TLD}}, but macOS and curl reject a wildcard
+    # directly under a public suffix, so henk names each linked host in the cert
+    # explicitly. A host nobody ever linked is by definition not in that list, so
+    # over https it dies in the TLS handshake before any of this runs. Over http
+    # it gets a page that explains itself.
+    henk-catchall:
+      rule: "PathPrefix(`/`)"
+      priority: 1
+      entryPoints:
+        - websecure
+      tls: {}
+      middlewares:
+        - henk-unlinked
+      service: henk-error-pages
+
+    henk-catchall-http:
+      rule: "PathPrefix(`/`)"
+      priority: 1
+      entryPoints:
+        - web
+      middlewares:
+        - henk-unlinked
+      service: henk-error-pages
+
+  middlewares:
+    # Catches any 5xx Traefik itself produces — most importantly a 502 when a
+    # linked project's container is stopped or unreachable — and serves a
+    # branded page from the error-pages container instead. Wired as the default
+    # middleware on both entrypoints (see traefik.yml).
+    henk-errors:
+      errors:
+        status:
+          - "500-599"
+        service: henk-error-pages
+        query: "/{status}.html"
+
+    # The error-pages nginx keys off the path to pick a page; the catchall
+    # router has no meaningful path of its own, so give it one.
+    henk-unlinked:
+      replacePath:
+        path: /unlinked
+
+    # Applied by each linked project's `-http` router, so only hostnames henk
+    # knows about get upgraded to https (see the note in traefik.yml).
+    henk-https-redirect:
+      redirectScheme:
+        scheme: https
+        permanent: true
+
+  services:
+    # The error-pages container (see compose.yml), reachable by its compose
+    # service name on the shared henk-proxy network.
+    henk-error-pages:
+      loadBalancer:
+        servers:
+          - url: "http://error-pages:8080"
+
 tls:
   stores:
     default:

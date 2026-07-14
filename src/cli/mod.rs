@@ -71,6 +71,12 @@ pub enum Command {
         /// `--service` for unambiguous overrides.
         #[arg(long)]
         port: Option<u16>,
+
+        /// Path Traefik's health check requests to decide the backend is
+        /// alive (default `/`). Only 2xx/3xx count as alive, so apps that
+        /// answer `/` with a 401/404 need a path that doesn't.
+        #[arg(long)]
+        health_path: Option<String>,
     },
 
     /// Remove a project (or one of its hosts) from routing.
@@ -129,7 +135,8 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
             host,
             service,
             port,
-        }) => link::run(add, host, service, port).await,
+            health_path,
+        }) => link::run(add, host, service, port, health_path).await,
         Some(Command::Unlink { host }) => unlink::run(host).await,
         Some(Command::Status) => status::run().await,
         Some(Command::Up) => up::run().await,

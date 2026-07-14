@@ -49,10 +49,22 @@ pub struct HostEntry {
     /// `http://host.docker.internal:3000`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
+    /// Path Traefik's health check requests to decide whether the backend is
+    /// alive. Defaults to `/`. Override it for apps that answer `/` with a
+    /// 401/404 — Traefik counts only 2xx/3xx as alive, so those would
+    /// otherwise look permanently down and always serve the error page.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub health_path: Option<String>,
     /// Free-form tags. Used today for `["vite"]` to mark the Vite HMR
     /// sub-host so the wizard knows not to offer it again on relink.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub flags: Vec<String>,
+}
+
+impl HostEntry {
+    pub fn health_path(&self) -> &str {
+        self.health_path.as_deref().unwrap_or("/")
+    }
 }
 
 impl ProjectManifest {
@@ -122,6 +134,7 @@ mod tests {
                     service: Some("laravel.test".into()),
                     port: Some(80),
                     target: None,
+                    health_path: None,
                     flags: vec![],
                 },
                 HostEntry {
@@ -129,6 +142,7 @@ mod tests {
                     service: Some("laravel.test".into()),
                     port: Some(5173),
                     target: None,
+                    health_path: None,
                     flags: vec!["vite".into()],
                 },
             ],
@@ -150,6 +164,7 @@ mod tests {
                 service: None,
                 port: None,
                 target: Some("http://host.docker.internal:3000".into()),
+                health_path: None,
                 flags: vec![],
             }],
         };

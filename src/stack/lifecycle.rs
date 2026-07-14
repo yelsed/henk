@@ -5,9 +5,11 @@
 use anyhow::{Context, Result, bail};
 
 use crate::config::Config;
-use crate::consts::PROXY_NETWORK;
+use crate::consts::{PROXY_NETWORK, STACK_VERSION};
 use crate::detect::Status;
 use crate::detect::ports::probe_port;
+use crate::manifest::StateManifest;
+use crate::project::file_provider;
 use crate::runner::SystemRunner;
 use crate::stack::paths;
 use crate::stack::{certs, dnsmasq, resolver, templates};
@@ -23,10 +25,34 @@ use crate::stack::{certs, dnsmasq, resolver, templates};
 pub async fn up(runner: &SystemRunner, cfg: &Config) -> Result<()> {
     require_docker(runner).await?;
     require_ports_free(runner, cfg).await?;
-    templates::render_all(cfg)?;
+    let boot_config_changed = templates::render_all(cfg)?;
+    for slug in file_provider::migrate_legacy_entries()? {
+        println!("  ↑ {slug}: routing upgraded (health check + error page)");
+    }
     ensure_network(runner).await?;
     compose_up(runner).await?;
+    // `docker compose up -d` won't notice: the compose spec is unchanged, only
+    // the contents of a mounted file. Without this the containers keep serving
+    // the routing they booted with.
+    if boot_config_changed {
+        println!("  ↑ stack config changed — restarting the proxy");
+        compose_restart(runner).await?;
+    }
+    record_stack_version()?;
     print_up_summary(cfg);
+    Ok(())
+}
+
+/// The stack on disk now matches what this binary ships, so say so in
+/// state.json. Without this every later `henk doctor` keeps reporting the same
+/// version drift it just re-rendered away.
+fn record_stack_version() -> Result<()> {
+    if let Some(mut state) = StateManifest::load()?
+        && state.stack_version < STACK_VERSION
+    {
+        state.stack_version = STACK_VERSION;
+        state.save()?;
+    }
     Ok(())
 }
 
@@ -209,6 +235,25 @@ async fn ensure_network(runner: &SystemRunner) -> Result<()> {
     if !out.ok() {
         bail!(
             "could not create network `{PROXY_NETWORK}`:\n{}\n{}",
+            out.stdout.trim_end(),
+            out.stderr.trim_end()
+        );
+    }
+    Ok(())
+}
+
+/// Restart the containers so they re-read their boot config (`traefik.yml`,
+/// `nginx.conf`), which is mounted from disk and only read at startup.
+async fn compose_restart(runner: &SystemRunner) -> Result<()> {
+    let compose = paths::traefik_compose_path()?;
+    let path = compose.to_str().context("compose path must be UTF-8")?;
+    let out = runner
+        .run("docker", ["compose", "-f", path, "restart"])
+        .await
+        .context("running `docker compose restart`")?;
+    if !out.ok() {
+        bail!(
+            "docker compose restart failed:\n{}\n{}",
             out.stdout.trim_end(),
             out.stderr.trim_end()
         );
