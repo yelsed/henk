@@ -25,6 +25,7 @@ pub async fn run(
     host_override: Option<String>,
     service_override: Option<String>,
     port_override: Option<u16>,
+    health_path: Option<String>,
 ) -> Result<()> {
     let cfg =
         Config::load()?.context("henk has not been initialised yet — run `henk init` first")?;
@@ -66,7 +67,8 @@ pub async fn run(
         );
     }
 
-    let host_entry = build_host_entry(&detection, &new_host)?;
+    let mut host_entry = build_host_entry(&detection, &new_host)?;
+    host_entry.health_path = health_path;
     manifest.hosts.push(host_entry);
 
     // Vite sub-host auto-offer: only on a fresh link (not --add), only
@@ -97,6 +99,7 @@ pub async fn run(
                 // running Vite inside the container should drop
                 // this line from `.henk.toml`.
                 target: Some("http://host.docker.internal:5173".into()),
+                health_path: None,
                 flags: vec!["vite".into()],
             });
             vite_host_added = Some(vite_host);
@@ -243,6 +246,7 @@ fn build_host_entry(detection: &ProjectDetection, host: &str) -> Result<HostEntr
                 service: Some(service),
                 port: Some(port),
                 target,
+                health_path: None,
                 flags,
             })
         }
@@ -253,6 +257,7 @@ fn build_host_entry(detection: &ProjectDetection, host: &str) -> Result<HostEntr
                 service: None,
                 port: None,
                 target: Some(format!("http://host.docker.internal:{port}")),
+                health_path: None,
                 flags: vec![],
             })
         }

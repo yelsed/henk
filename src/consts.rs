@@ -2,8 +2,18 @@
 
 /// Bumped whenever the embedded Traefik / dnsmasq compose templates or schema
 /// change in a way that requires re-rendering on the user's machine.
-/// `henk` checks this against `state.json::stack_version` and migrates if newer.
-pub const STACK_VERSION: u32 = 1;
+/// `henk doctor` checks this against `state.json::stack_version` and reports
+/// drift; `--repair` re-renders and records the new version.
+/// v2: branded error pages — error-pages service + `henk-errors` middleware on
+/// both entrypoints, so a down container yields a friendly page, not a raw 502.
+/// v3: that page is henk's own (nginx + our HTML), naming the three causes of
+/// an unreachable dev server instead of a generic status-code page.
+/// v4: every reachable failure gets the page that fits it — backend down, app
+/// error, unlinked hostname — and each is content-negotiated, so curl and
+/// coding agents get plain text instead of a document full of markup. The `web`
+/// entrypoint now redirects to https; without it `http://app.test` answered a
+/// bare 404 even for a linked, healthy project.
+pub const STACK_VERSION: u32 = 4;
 
 /// Bumped on `state.json` schema changes.
 pub const STATE_SCHEMA_VERSION: u32 = 1;

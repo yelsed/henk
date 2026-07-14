@@ -1,0 +1,38 @@
+<main>
+  <p class="eyebrow">henk</p>
+  <h1>This site is linked, but its dev server isn't answering.</h1>
+  <p class="lede">
+    Routing and the certificate are fine — henk reached the address you linked and got
+    nothing usable back. It's almost always one of these three.
+  </p>
+
+  <h2>Most likely causes</h2>
+  <ol>
+    <li>
+      <strong>The dev server isn't running.</strong>
+      <p>Start it (<code>npm run dev</code>, <code>sail up</code>, <code>docker compose up -d</code>).</p>
+    </li>
+    <li>
+      <strong>It's bound to localhost only.</strong>
+      <p>
+        Traefik runs in Docker and reaches your machine over IPv4 via
+        <code>host.docker.internal</code>. A server on <code>127.0.0.1</code> or
+        <code>[::1]</code> is invisible to it. Restart on <code>0.0.0.0</code> —
+        <code>nuxt dev --host</code>, <code>vite --host</code>,
+        <code>next dev -H 0.0.0.0</code>.
+      </p>
+    </li>
+    <li>
+      <strong>It rejects the <code>.{{TLD}}</code> hostname.</strong>
+      <p>
+        Vite-based apps refuse unknown hosts with a 403. Add this host to
+        <code>server.allowedHosts</code> in your Vite config.
+      </p>
+    </li>
+  </ol>
+
+  <p class="fix">
+    Don't guess — <strong><code>henk doctor</code></strong> probes the port and tells you
+    which one it is.
+  </p>
+</main>

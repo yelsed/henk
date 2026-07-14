@@ -8,8 +8,9 @@ pub async fn run(
     host: Option<String>,
     service: Option<String>,
     port: Option<u16>,
+    health_path: Option<String>,
 ) -> Result<()> {
     let runner = SystemRunner::new();
     let cwd = std::env::current_dir().context("could not resolve current working directory")?;
-    project::link::run(&runner, &cwd, add, host, service, port).await
+    project::link::run(&runner, &cwd, add, host, service, port, health_path).await
 }

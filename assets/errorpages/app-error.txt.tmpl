@@ -1,0 +1,18 @@
+HENK: your app answered — with an error.
+
+This one isn't henk. DNS, routing, the certificate and the dev server are
+all working: henk forwarded the request, and your app handed back a server
+error. The fix is in your app, not in the proxy.
+
+Where to look:
+
+  1. The terminal running your dev server.
+     The stack trace is there — henk only relays the status code, it never
+     sees the exception.
+
+  2. Your app's own logs.
+     storage/logs/laravel.log, docker compose logs -f, or whatever your
+     framework writes to.
+
+Nothing to change in henk — `henk doctor` will confirm the routing is
+healthy if you want to rule it out.

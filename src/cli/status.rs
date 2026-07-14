@@ -1,10 +1,13 @@
 //! `henk status` — text snapshot of stack health, linked projects, and
 //! certificate state. Read-only.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::path::Path;
 
 use crate::config::Config;
+use crate::consts::STACK_VERSION;
+use crate::detect::{Status, backend};
+use crate::manifest::StateManifest;
 use crate::runner::SystemRunner;
 use crate::stack::paths;
 
@@ -33,10 +36,35 @@ pub async fn run() -> Result<()> {
     println!("  Dashboard:  http://localhost:{}", cfg.ports.dashboard);
     println!();
 
+    print_stale_stack_nudge()?;
     print_stack_status(&runner).await;
     print_cert_status(&cfg).await;
-    print_linked_projects(&cfg)?;
+    print_linked_projects(&runner).await?;
 
+    Ok(())
+}
+
+/// The binary can be replaced without henk being the one to do it (Homebrew, the
+/// installer script, `cargo install`), and a newer binary ships newer stack
+/// templates than the running proxy booted with. `henk update` re-renders on its
+/// own; this is what catches every other route in.
+fn print_stale_stack_nudge() -> Result<()> {
+    use owo_colors::OwoColorize;
+
+    let Some(state) = StateManifest::load()? else {
+        return Ok(());
+    };
+    if state.stack_version >= STACK_VERSION {
+        return Ok(());
+    }
+
+    println!(
+        "  {}  The running stack is v{} but this henk ships v{STACK_VERSION}.",
+        "!".yellow(),
+        state.stack_version
+    );
+    println!("     Run {} to pick up the new routing.", "henk up".bold());
+    println!();
     Ok(())
 }
 
@@ -94,62 +122,42 @@ async fn print_cert_status(cfg: &Config) {
     println!();
 }
 
-fn print_linked_projects(_cfg: &Config) -> Result<()> {
+async fn print_linked_projects(runner: &SystemRunner) -> Result<()> {
     use owo_colors::OwoColorize;
 
-    let dyn_dir = paths::dynamic_projects_dir()?;
-    if !dyn_dir.exists() {
+    let linked = backend::linked_hosts()?;
+    if linked.is_empty() {
         println!("  Linked projects: {}", "none".bright_black());
         println!();
         return Ok(());
     }
 
-    let mut entries: Vec<(String, Vec<String>)> = Vec::new();
-    for entry in
-        std::fs::read_dir(&dyn_dir).with_context(|| format!("reading {}", dyn_dir.display()))?
-    {
-        let entry = entry?;
-        let path = entry.path();
-        if path.extension().and_then(|s| s.to_str()) != Some("yml") {
-            continue;
-        }
-        let stem = match path.file_stem().and_then(|s| s.to_str()) {
-            Some(s) => s.to_string(),
-            None => continue,
-        };
-        // `_henk.yml` is the dashboard / TLS config — not a linked project.
-        if stem.starts_with('_') {
-            continue;
-        }
-        let body = std::fs::read_to_string(&path).unwrap_or_default();
-        entries.push((stem, extract_hosts_from_yaml(&body)));
-    }
-
-    if entries.is_empty() {
-        println!("  Linked projects: {}", "none".bright_black());
-        println!();
-        return Ok(());
-    }
+    // Host-mode backends get a reachability verdict; Docker-mode ones can't be
+    // probed from here, so they simply print without a glyph.
+    let verdicts = backend::probe_all(runner).await?;
 
     println!("  {}", "Linked projects:".bold());
-    entries.sort_by(|a, b| a.0.cmp(&b.0));
-    for (slug, hosts) in &entries {
-        println!("    · {slug}");
-        for h in hosts {
-            println!("        https://{h}");
+    let mut current_slug = "";
+    for host in &linked {
+        if host.slug != current_slug {
+            println!("    · {}", host.slug);
+            current_slug = &host.slug;
+        }
+        match verdicts.iter().find(|v| v.host == host.host) {
+            Some(v) if v.status == Status::Ok => {
+                println!("        {}  https://{}", v.status.glyph(), host.host)
+            }
+            Some(v) => println!(
+                "        {}  https://{}  — {}",
+                v.status.glyph(),
+                host.host,
+                v.detail
+            ),
+            None => println!("           https://{}", host.host),
         }
     }
     println!();
     Ok(())
-}
-
-fn extract_hosts_from_yaml(body: &str) -> Vec<String> {
-    use std::sync::LazyLock;
-    static RE: LazyLock<regex::Regex> =
-        LazyLock::new(|| regex::Regex::new(r"Host\(`([^`]+)`\)").expect("static regex"));
-    RE.captures_iter(body)
-        .filter_map(|c| c.get(1).map(|m| m.as_str().to_string()))
-        .collect()
 }
 
 async fn container_running(runner: &SystemRunner, name: &str) -> bool {
@@ -231,30 +239,4 @@ fn read_cert_expiry(path: &Path) -> Option<String> {
     }
     let text = String::from_utf8_lossy(&out.stdout);
     text.trim().strip_prefix("notAfter=").map(|s| s.to_string())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn extract_hosts_from_yaml_pulls_every_host_rule() {
-        let body = r#"
-http:
-  routers:
-    a:
-      rule: "Host(`one.test`)"
-    b:
-      rule: "Host(`two.test`)"
-        "#;
-        assert_eq!(
-            extract_hosts_from_yaml(body),
-            vec!["one.test".to_string(), "two.test".to_string()]
-        );
-    }
-
-    #[test]
-    fn extract_hosts_returns_empty_on_no_match() {
-        assert!(extract_hosts_from_yaml("services: {}").is_empty());
-    }
 }

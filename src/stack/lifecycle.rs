@@ -5,9 +5,11 @@
 use anyhow::{Context, Result, bail};
 
 use crate::config::Config;
-use crate::consts::PROXY_NETWORK;
+use crate::consts::{PROXY_NETWORK, STACK_VERSION};
 use crate::detect::Status;
 use crate::detect::ports::probe_port;
+use crate::manifest::StateManifest;
+use crate::project::file_provider;
 use crate::runner::SystemRunner;
 use crate::stack::paths;
 use crate::stack::{certs, dnsmasq, resolver, templates};
@@ -23,30 +25,53 @@ use crate::stack::{certs, dnsmasq, resolver, templates};
 pub async fn up(runner: &SystemRunner, cfg: &Config) -> Result<()> {
     require_docker(runner).await?;
     require_ports_free(runner, cfg).await?;
-    templates::render_all(cfg)?;
+    let boot_config_changed = templates::render_all(cfg)?;
+    for slug in file_provider::migrate_legacy_entries()? {
+        println!("  ↑ {slug}: routing upgraded (health check + error page)");
+    }
     ensure_network(runner).await?;
     compose_up(runner).await?;
+    // `docker compose up -d` won't notice: the compose spec is unchanged, only
+    // the contents of a mounted file. Without this the containers keep serving
+    // the routing they booted with.
+    if boot_config_changed {
+        println!("  ↑ stack config changed — restarting the proxy");
+        compose_restart(runner).await?;
+    }
+    record_stack_version()?;
     print_up_summary(cfg);
+    Ok(())
+}
+
+/// The stack on disk now matches what this binary ships, so say so in
+/// state.json. Without this every later `henk doctor` keeps reporting the same
+/// version drift it just re-rendered away.
+fn record_stack_version() -> Result<()> {
+    if let Some(mut state) = StateManifest::load()?
+        && state.stack_version < STACK_VERSION
+    {
+        state.stack_version = STACK_VERSION;
+        state.save()?;
+    }
     Ok(())
 }
 
 /// `henk init` (full mode). Drives the entire first-run setup, in order:
 ///
-/// 1. Render the stack templates from `cfg`.
-/// 2. Ensure mkcert's local CA is installed in the system keychain.
-/// 3. Generate the wildcard certificate for `*.<tld>`.
-/// 4. Write `/etc/resolver/<tld>` with sudo (idempotent — skipped if the
+/// 1. Ensure mkcert's local CA is installed in the system keychain.
+/// 2. Generate the wildcard certificate for `*.<tld>`.
+/// 3. Write `/etc/resolver/<tld>` with sudo (idempotent — skipped if the
 ///    correct contents are already in place under our header).
-/// 5. Ensure the `henk-proxy` Docker network exists.
-/// 6. `docker compose up -d` for the global stack.
+/// 4. Hand off to `up`, which renders the templates, migrates any project
+///    routing that predates them, starts the stack, and records the applied
+///    `STACK_VERSION`.
 ///
-/// Each step is idempotent; rerunning `henk init` is safe.
+/// Each step is idempotent; rerunning `henk init` is safe — and because step 4
+/// is the same `up` everything else goes through, re-running it on an existing
+/// install upgrades that install rather than half-rendering it.
 pub async fn init_full(runner: &SystemRunner, cfg: &Config) -> Result<()> {
     require_docker(runner).await?;
     require_ports_free(runner, cfg).await?;
-
-    println!("⤷ rendering stack templates ...");
-    templates::render_all(cfg)?;
 
     println!("⤷ ensuring mkcert's local CA is installed (may prompt) ...");
     certs::ensure_ca_installed(runner).await?;
@@ -67,14 +92,8 @@ pub async fn init_full(runner: &SystemRunner, cfg: &Config) -> Result<()> {
     );
     resolver::ensure_written(runner, &cfg.tld).await?;
 
-    println!("⤷ ensuring docker network `{PROXY_NETWORK}` exists ...");
-    ensure_network(runner).await?;
-
-    println!("⤷ starting global stack ...");
-    compose_up(runner).await?;
-
-    print_up_summary(cfg);
-    Ok(())
+    println!("⤷ rendering stack templates and starting the global stack ...");
+    up(runner, cfg).await
 }
 
 fn print_up_summary(cfg: &Config) {
@@ -209,6 +228,25 @@ async fn ensure_network(runner: &SystemRunner) -> Result<()> {
     if !out.ok() {
         bail!(
             "could not create network `{PROXY_NETWORK}`:\n{}\n{}",
+            out.stdout.trim_end(),
+            out.stderr.trim_end()
+        );
+    }
+    Ok(())
+}
+
+/// Restart the containers so they re-read their boot config (`traefik.yml`,
+/// `nginx.conf`), which is mounted from disk and only read at startup.
+async fn compose_restart(runner: &SystemRunner) -> Result<()> {
+    let compose = paths::traefik_compose_path()?;
+    let path = compose.to_str().context("compose path must be UTF-8")?;
+    let out = runner
+        .run("docker", ["compose", "-f", path, "restart"])
+        .await
+        .context("running `docker compose restart`")?;
+    if !out.ok() {
+        bail!(
+            "docker compose restart failed:\n{}\n{}",
             out.stdout.trim_end(),
             out.stderr.trim_end()
         );
