@@ -91,16 +91,24 @@ jobs:
           TAG=${{ github.ref_name }}
           cat > dist/henk-installer.sh << 'INSTALLER'
           #!/bin/sh
-          # henk installer — downloads the correct binary for this Mac and puts
-          # it in ~/.local/bin. Run with:
-          #   curl -fsSL https://github.com/fivespark/henk/releases/latest/download/henk-installer.sh | sh
+          # henk installer — downloads the correct binary for this Mac, puts it in
+          # ~/.local/bin, and writes the receipt `henk update` reads. Run with:
+          #   curl -fsSL https://github.com/yelsed/henk/releases/latest/download/henk-installer.sh | sh
+          #
+          # `henk update` re-runs this exact script to self-update, so it honours
+          # the install dir axoupdater forces (CARGO_DIST_FORCE_INSTALL_DIR /
+          # HENK_INSTALL_DIR) and installs the version it was built for rather than
+          # re-resolving "latest".
           set -eu
 
           BIN_NAME="henk"
-          REPO="fivespark/henk"
-          INSTALL_DIR="${HOME}/.local/bin"
+          REPO="yelsed/henk"
+          VERSION="__TAG__"
 
-          # Detect architecture
+          # Install dir: whatever `henk update` forces, else the default. Both env
+          # vars point at the same place; HENK_INSTALL_DIR is the app-specific one.
+          INSTALL_DIR="${HENK_INSTALL_DIR:-${CARGO_DIST_FORCE_INSTALL_DIR:-${HOME}/.local/bin}}"
+
           ARCH=$(uname -m)
           case "${ARCH}" in
             arm64)  TARGET="aarch64-apple-darwin" ;;
@@ -112,27 +120,16 @@ jobs:
               ;;
           esac
 
-          # macOS check
           OS=$(uname -s)
           if [ "${OS}" != "Darwin" ]; then
             echo "henk is macOS-only. Detected OS: ${OS}" >&2
             exit 1
           fi
 
-          # Fetch latest release tag from GitHub API
-          TAG=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
-            | grep '"tag_name"' \
-            | sed -E 's/.*"([^"]+)".*/\1/')
-
-          if [ -z "${TAG}" ]; then
-            echo "Could not determine latest release tag." >&2
-            exit 1
-          fi
-
-          URL="https://github.com/${REPO}/releases/download/${TAG}/${BIN_NAME}-${TAG}-${TARGET}.tar.gz"
+          URL="https://github.com/${REPO}/releases/download/${VERSION}/${BIN_NAME}-${VERSION}-${TARGET}.tar.gz"
 
           echo ""
-          echo "Installing ${BIN_NAME} ${TAG} (${TARGET})..."
+          echo "Installing ${BIN_NAME} ${VERSION} (${TARGET})..."
           echo "  from: ${URL}"
           echo "  to:   ${INSTALL_DIR}/${BIN_NAME}"
           echo ""
@@ -141,20 +138,33 @@ jobs:
           curl -fsSL "${URL}" | tar xz -C "${INSTALL_DIR}"
           chmod +x "${INSTALL_DIR}/${BIN_NAME}"
 
+          # The receipt axoupdater reads on `henk update`. Without it, henk can't
+          # tell where it was installed from and refuses to self-update. Schema is
+          # cargo-dist's; install_prefix is the bin dir itself, and the pinned
+          # provider version keeps axoupdater from stripping a `bin` suffix that
+          # isn't there. The recorded version carries no leading `v`.
+          RECEIPT_DIR="${XDG_CONFIG_HOME:-${HOME}/.config}/henk"
+          mkdir -p "${RECEIPT_DIR}"
+          cat > "${RECEIPT_DIR}/henk-receipt.json" << RECEIPT
+          {"binaries":["henk"],"install_prefix":"${INSTALL_DIR}","provider":{"source":"cargo-dist","version":"0.31.0"},"source":{"app_name":"henk","name":"henk","owner":"yelsed","release_type":"github"},"version":"${VERSION#v}"}
+          RECEIPT
+
           echo "Done. ${BIN_NAME} installed to ${INSTALL_DIR}/${BIN_NAME}"
 
-          # PATH hint
-          case ":${PATH}:" in
-            *":${INSTALL_DIR}:"*) ;;
-            *)
-              echo ""
-              echo "Add ${INSTALL_DIR} to your PATH:"
-              echo "  export PATH=\"\${HOME}/.local/bin:\$PATH\""
-              echo ""
-              echo "Then verify: henk --version"
-              ;;
-          esac
+          if [ -z "${HENK_NO_MODIFY_PATH:-}" ]; then
+            case ":${PATH}:" in
+              *":${INSTALL_DIR}:"*) ;;
+              *)
+                echo ""
+                echo "Add ${INSTALL_DIR} to your PATH:"
+                echo "  export PATH=\"${INSTALL_DIR}:\$PATH\""
+                echo ""
+                echo "Then verify: henk --version"
+                ;;
+            esac
+          fi
           INSTALLER
+          sed -i "s|__TAG__|${TAG}|" dist/henk-installer.sh
           chmod +x dist/henk-installer.sh
 
       - uses: softprops/action-gh-release@v2

@@ -45,11 +45,11 @@ pub const PROXY_NETWORK: &str = "henk-proxy";
 
 /// Header inserted at the top of every file henk authors. Used by uninstall
 /// and unlink to verify ownership before deleting.
-pub const HENK_FILE_HEADER: &str = "# managed by henk — see https://github.com/fivespark/henk";
+pub const HENK_FILE_HEADER: &str = "# managed by henk — see https://github.com/yelsed/henk";
 
 /// Equivalent header for TOML files (which need a `#` comment line too, just
 /// kept separate for clarity / future divergence).
-pub const HENK_TOML_HEADER: &str = "# managed by henk — see https://github.com/fivespark/henk";
+pub const HENK_TOML_HEADER: &str = "# managed by henk — see https://github.com/yelsed/henk";
 
 /// Web-ish ports preferred when multiple are exposed by a service.
 /// Lower index = stronger preference.

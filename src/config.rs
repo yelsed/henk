@@ -73,7 +73,7 @@ impl Config {
         }
         let body = toml::to_string_pretty(self).context("serialising config")?;
         let header = format!(
-            "# managed by henk — see https://github.com/fivespark/henk\n# schema_version = {}\n",
+            "# managed by henk — see https://github.com/yelsed/henk\n# schema_version = {}\n",
             self.schema_version
         );
         let full = format!("{header}\n{body}");

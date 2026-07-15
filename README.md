@@ -20,7 +20,7 @@ Coexists with Laravel Valet and Herd — if `.test` is taken, henk falls back to
 **Prerequisites:** macOS (Apple Silicon or Intel), [Docker Desktop](https://www.docker.com/products/docker-desktop/) running, [Homebrew](https://brew.sh/) installed.
 
 ```sh
-curl -fsSL https://github.com/fivespark/henk/releases/latest/download/henk-installer.sh | sh
+curl -fsSL https://github.com/yelsed/henk/releases/latest/download/henk-installer.sh | sh
 ```
 
 Then run first-time setup:

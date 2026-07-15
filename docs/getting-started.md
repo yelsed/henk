@@ -13,7 +13,7 @@ You do **not** need to install `mkcert`, `nss`, or `dnsmasq` yourself — `henk 
 ## Build from source (pre-release)
 
 ```sh
-git clone https://github.com/fivespark/henk
+git clone https://github.com/yelsed/henk
 cd henk
 cargo build --release
 sudo install target/release/henk /usr/local/bin/henk     # optional: put it on $PATH
@@ -22,7 +22,7 @@ sudo install target/release/henk /usr/local/bin/henk     # optional: put it on $
 Once a release tag exists:
 
 ```sh
-curl -fsSL https://github.com/fivespark/henk/releases/latest/download/install.sh | sh
+curl -fsSL https://github.com/yelsed/henk/releases/latest/download/henk-installer.sh | sh
 ```
 
 ## What works today (M1)

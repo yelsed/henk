@@ -12,7 +12,7 @@
 //! "I ran `henk update`, then …".
 //!
 //! axoupdater reads a cargo-dist install receipt
-//! (`~/.config/henk/install_receipt.json`) to know the current version and
+//! (`~/.config/henk/henk-receipt.json`) to know the current version and
 //! release source. When the receipt is absent (e.g. the binary was built from
 //! source), we fall back gracefully rather than panicking.
 
@@ -42,7 +42,7 @@ pub async fn run(check: bool) -> Result<()> {
     println!();
 
     // Build the updater. load_receipt() reads the cargo-dist install receipt
-    // written by the installer script at ~/.config/henk/install_receipt.json.
+    // written by the installer script at ~/.config/henk/henk-receipt.json.
     // If the receipt is missing the binary was built from source; we surface
     // a clear message instead of an opaque error.
     let mut updater = AxoUpdater::new_for("henk");
@@ -82,7 +82,7 @@ pub async fn run(check: bool) -> Result<()> {
                     e
                 );
                 println!();
-                println!("  Check https://github.com/fivespark/henk/releases manually.");
+                println!("  Check https://github.com/yelsed/henk/releases manually.");
             }
         }
         println!();
@@ -118,7 +118,7 @@ pub async fn run(check: bool) -> Result<()> {
             }
             println!("  {}  Update failed: {}", "✗".bright_red(), e);
             println!();
-            println!("  Download manually from https://github.com/fivespark/henk/releases");
+            println!("  Download manually from https://github.com/yelsed/henk/releases");
         }
     }
 

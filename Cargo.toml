@@ -1,6 +1,6 @@
 [package]
 name = "henk"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 description = "Local-dev URL routing for Docker on macOS — Valet/Herd ergonomics for any container."
 license = "MIT"
