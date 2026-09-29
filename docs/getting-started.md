@@ -10,6 +10,8 @@
 
 You do **not** need to install `mkcert`, `nss`, or `dnsmasq` yourself — `henk init` will offer to install them for you.
 
+On Linux the prerequisites are Docker Engine and systemd-resolved instead, and `henk init` installs `mkcert` and `nss` with pacman — see [Linux in the README](../README.md#linux).
+
 ## Build from source (pre-release)
 
 ```sh
