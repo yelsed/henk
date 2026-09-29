@@ -1,0 +1,21 @@
+  # Linux only. systemd-resolved forwards *.{{TLD}} here (see
+  # /etc/systemd/resolved.conf.d/henk-{{TLD}}.conf). The macOS note below —
+  # packets dropped inside Docker Desktop's VM — doesn't apply to native Docker.
+  # `--no-resolv`: never forward. resolved also sends this server the queries
+  # for every other domain; forwarding them would loop resolved → dnsmasq →
+  # Docker's DNS → resolved. Refusing them lets the real DNS servers answer.
+  dnsmasq:
+    image: 4km3/dnsmasq:2.90-r3
+    container_name: henk-dnsmasq
+    restart: unless-stopped
+    command:
+      - --no-resolv
+      - --no-hosts
+      - --address=/.{{TLD}}/127.0.0.1
+      - --log-facility=-
+    ports:
+      - "127.0.0.1:{{DNSMASQ_PORT}}:53/udp"
+      - "127.0.0.1:{{DNSMASQ_PORT}}:53/tcp"
+    networks:
+      - henk-proxy
+

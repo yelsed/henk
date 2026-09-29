@@ -8,8 +8,8 @@ services:
     container_name: henk-traefik
     restart: unless-stopped
     ports:
-      - "{{HTTP_PORT}}:80"
-      - "{{HTTPS_PORT}}:443"
+      - "{{PUBLISH_HOST}}{{HTTP_PORT}}:80"
+      - "{{PUBLISH_HOST}}{{HTTPS_PORT}}:443"
       - "127.0.0.1:{{DASHBOARD_PORT}}:8080"
     volumes:
       - ./traefik.yml:/etc/traefik/traefik.yml:ro
@@ -19,6 +19,7 @@ services:
       - ./certs:/certs:ro
     networks:
       - henk-proxy
+{{TRAEFIK_PLATFORM}}
 
   # henk's own error pages. Reached three ways: the `henk-errors` middleware
   # forwards 5xx from a backend, each project's `failover` service falls back
@@ -40,7 +41,8 @@ services:
     networks:
       - henk-proxy
 
-  # NOTE: dnsmasq is intentionally absent from this stack right now.
+{{DNSMASQ_SERVICE}}
+  # NOTE (macOS): dnsmasq is intentionally absent from this stack there.
   # The plan called for it to live alongside Traefik in this compose file,
   # but verification on Docker Desktop 4.71 / Docker Engine 29.4.1 / linuxkit
   # 6.12.76 showed that even peer-container DNS queries to a dnsmasq sidecar
