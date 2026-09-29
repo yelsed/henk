@@ -583,6 +583,15 @@ fn print_host_mode_hint(port: u16) {
     println!("  Or set the bind address in your framework's config so");
     println!("  `npm run dev` does the right thing without flags.");
     println!();
+    if cfg!(target_os = "linux") {
+        println!("  On Linux the request arrives from a Docker bridge, so a firewall");
+        println!("  must let it in too. With ufw:");
+        println!();
+        println!("    sudo ufw allow in from 172.16.0.0/12 to any port {port} proto tcp");
+        println!();
+        println!("  `henk doctor` checks this from inside the proxy container.");
+        println!();
+    }
 }
 
 fn print_summary(manifest: &ProjectManifest, project_dir: &Path) {
