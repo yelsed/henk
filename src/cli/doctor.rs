@@ -114,7 +114,7 @@ fn print_state_summary(state: &StateManifest) {
     } else {
         henk_pkgs.join(", ")
     };
-    println!("  brew (henk):     {pkg_str}");
+    println!("  packages (henk): {pkg_str}");
 
     let step_status = |name: &str| -> String {
         match state.steps.get(name) {
@@ -139,6 +139,10 @@ fn print_state_summary(state: &StateManifest) {
         steps::STACK_RENDERED,
         steps::STACK_UP,
     ] {
+        // Linux runs dnsmasq in the stack; there is no host drop-in step.
+        if name == steps::DNSMASQ_DROPIN && cfg!(target_os = "linux") {
+            continue;
+        }
         println!("    {name:18}  {}", step_status(name));
     }
     println!();

@@ -82,10 +82,13 @@ async fn print_stack_status(runner: &SystemRunner) {
     // Homebrew dnsmasq runs under launchd, not docker. Probe via `dig`
     // to see if :53 actually answers — `brew services` lies (see M3.5).
     let dnsmasq = dnsmasq_answering(runner).await;
-    let dnsmasq_str = if dnsmasq {
-        "answering on 127.0.0.1:53".green().to_string()
-    } else {
-        "not answering on :53".red().to_string()
+    let dnsmasq_str = match (dnsmasq, cfg!(target_os = "linux")) {
+        (true, true) => "answering via systemd-resolved".green().to_string(),
+        (false, true) => "no answer through systemd-resolved — run `henk doctor`"
+            .red()
+            .to_string(),
+        (true, false) => "answering on 127.0.0.1:53".green().to_string(),
+        (false, false) => "not answering on :53".red().to_string(),
     };
     println!("  dnsmasq:    {dnsmasq_str}");
     println!();
@@ -183,6 +186,11 @@ async fn dnsmasq_answering(runner: &SystemRunner) -> bool {
     let cfg = Config::load().ok().flatten();
     let tld = cfg.as_ref().map(|c| c.tld.as_str()).unwrap_or("test");
     let probe = format!("henk-status-probe.{tld}");
+    if cfg!(target_os = "linux") {
+        // The whole chain — resolved's drop-in to the henk-dnsmasq container —
+        // the way every program resolves it. `dig` isn't installed by default.
+        return runner.ok("getent", ["hosts", &probe]).await;
+    }
     let out = runner
         .run(
             "dig",
@@ -197,7 +205,7 @@ async fn dnsmasq_answering(runner: &SystemRunner) -> bool {
 
 /// Subject Alternative Names from a PEM-encoded x509 cert. Shells out
 /// to `openssl` — adding an x509 parser as a dep just for status would
-/// be overkill, and `openssl` is on every macOS box.
+/// be overkill, and `openssl` is on every macOS and Linux box.
 fn read_cert_sans(path: &Path) -> Option<Vec<String>> {
     let out = std::process::Command::new("openssl")
         .args(["x509", "-in"])

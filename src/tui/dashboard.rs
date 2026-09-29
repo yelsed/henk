@@ -441,6 +441,11 @@ fn container_running(name: &str) -> bool {
 
 fn dnsmasq_answers(tld: &str) -> bool {
     let probe = format!("henk-dashboard-probe.{tld}");
+    if cfg!(target_os = "linux") {
+        // Through systemd-resolved, the way every program resolves it.
+        let out = Command::new("getent").args(["hosts", &probe]).output();
+        return matches!(out, Ok(o) if o.status.success());
+    }
     let out = Command::new("dig")
         .args(["+short", "+time=1", "+tries=1", "@127.0.0.1", &probe])
         .output();
