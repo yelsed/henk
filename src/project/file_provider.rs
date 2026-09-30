@@ -178,10 +178,13 @@ fn render(manifest: &ProjectManifest) -> String {
         // The real backend, with an active health check that drives the failover.
         // The probed path must return 2xx/3xx or Traefik counts the backend as
         // down — apps that 401/404 on `/` set `health_path` in `.henk.toml`.
+        // It asks for the linked host, as a visitor does: a backend that checks
+        // its Host header refuses `host.docker.internal:<port>`.
         out.push_str(&format!("    {main}:\n"));
         out.push_str("      loadBalancer:\n");
         out.push_str("        healthCheck:\n");
         out.push_str(&format!("          path: \"{}\"\n", host.health_path()));
+        out.push_str(&format!("          hostname: \"{}\"\n", host.host));
         out.push_str("          interval: \"10s\"\n");
         out.push_str("          timeout: \"3s\"\n");
         out.push_str("        servers:\n");
@@ -379,6 +382,10 @@ http:
         let out = render(&m);
         assert!(out.contains("http://host.docker.internal:3000"));
         assert!(out.contains("Host(`sparkle.test`)"));
+        assert!(
+            out.contains("          hostname: \"sparkle.test\"\n"),
+            "the health check asks for the linked host, as a visitor does"
+        );
     }
 
     #[test]
