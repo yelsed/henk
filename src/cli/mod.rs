@@ -15,12 +15,12 @@ mod unlink;
 mod up;
 mod update;
 
-/// `henk` — local-dev URL routing for Docker on macOS.
+/// `henk` — local-dev URL routing for Docker on macOS and Linux.
 #[derive(Debug, Parser)]
 #[command(
     name = "henk",
     version,
-    about = "Local-dev URL routing for Docker on macOS",
+    about = "Local-dev URL routing for Docker on macOS and Linux",
     long_about = "henk turns any Docker container (or local dev server) into \
                   https://<name>.test with a trusted certificate, no \
                   /etc/hosts edits, and no nginx config."
@@ -109,7 +109,7 @@ pub enum Command {
     },
 
     /// Reverse what henk has done. Default removes only henk's own files;
-    /// `--deep` also removes Homebrew packages henk installed.
+    /// `--deep` also removes Homebrew (Linux: pacman) packages henk installed.
     Uninstall {
         #[arg(long)]
         deep: bool,

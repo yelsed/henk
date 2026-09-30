@@ -29,6 +29,16 @@ labels + henk-proxy network                  Traefik file provider →
                                              (sparkle, …)
 ```
 
+## Linux
+
+Same stack, three differences, each chosen at runtime with `cfg!(target_os = "linux")` next to the macOS code it replaces:
+
+- **DNS.** No `/etc/resolver/`: `stack::resolver` writes `/etc/systemd/resolved.conf.d/henk-<tld>.conf` (`DNS=127.0.0.1:<dnsmasq port>`, `Domains=~<tld>`) and restarts systemd-resolved. dnsmasq runs in the stack (`assets/traefik/compose-linux-dnsmasq.yml.tmpl`) — native Docker delivers the packets Docker Desktop drops. It runs with `--no-resolv`, because resolved also sends a global DNS server every other query and forwarding those would loop back through resolved.
+- **Publishing.** Traefik binds `127.0.0.1:80/443`, not the wildcard. DNS only ever answers `127.0.0.1`, and a wildcard bind fails against anything that holds the port on one address (`tailscale serve`). Port probes use `ss`, since `lsof` can't see other users' sockets.
+- **Host mode.** Native Docker has no `host.docker.internal`; the compose file maps it with `extra_hosts: host-gateway`. The dev server then sees traffic from a bridge, so `detect::backend` also asks from inside the Traefik container (`nc -z`) whether the port is reachable, which catches a loopback-only bind or a firewall.
+
+Packages come from pacman (`detect::linux`); the `brew_*` step names in `state.json` are kept for those too, so the schema doesn't change.
+
 ## Crate layout
 
 ```

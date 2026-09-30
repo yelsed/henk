@@ -2,12 +2,12 @@
 //!
 //! Three modes:
 //!   - default: stop stack, delete only henk's own files (`~/.config/henk`,
-//!     `/etc/resolver/<tld>`, dnsmasq drop-in). Foreign mkcert + nss +
-//!     dnsmasq stay installed.
+//!     `/etc/resolver/<tld>` or, on Linux, the systemd-resolved drop-in,
+//!     dnsmasq drop-in). Foreign mkcert + nss + dnsmasq stay installed.
 //!   - `--keep-config`: stop the stack but keep `~/.config/henk/`. Useful
 //!     when the user wants a clean re-init later without losing their
 //!     `state.json` audit log.
-//!   - `--deep`: default + `brew uninstall` every Homebrew package
+//!   - `--deep`: default + `brew uninstall` (Linux: `pacman -R`) every package
 //!     `state.json` says we ourselves installed (`installed_by = Henk`).
 //!     Pre-existing packages are NEVER touched.
 //!
@@ -22,8 +22,8 @@ use std::path::Path;
 use crate::consts::HENK_FILE_HEADER;
 use crate::manifest::StateManifest;
 use crate::runner::SystemRunner;
-use crate::stack::lifecycle;
 use crate::stack::paths;
+use crate::stack::{lifecycle, resolver};
 
 pub async fn run(deep: bool, keep_config: bool, auto_yes: bool) -> Result<()> {
     use owo_colors::OwoColorize;
@@ -60,21 +60,19 @@ pub async fn run(deep: bool, keep_config: bool, auto_yes: bool) -> Result<()> {
 
     if deep {
         println!();
-        println!("{}", "── Homebrew (deep) ──".bold().bright_blue());
+        println!("{}", "── Packages (deep) ──".bold().bright_blue());
         if let Some(state) = state.as_ref() {
             uninstall_henk_brew_pkgs(&runner, state).await?;
         } else {
-            println!(
-                "  state.json missing — can't tell which brew packages were installed by henk;"
-            );
-            println!("  skipping `brew uninstall` (refusing to guess).");
+            println!("  state.json missing — can't tell which packages were installed by henk;");
+            println!("  skipping package removal (refusing to guess).");
         }
     }
 
     println!();
     println!("{}  henk has been uninstalled.", "✓".green().bold());
     if !deep {
-        println!("  Homebrew packages (mkcert, nss, dnsmasq) left in place. Re-run with `--deep`");
+        println!("  Packages (mkcert, nss, dnsmasq) left in place. Re-run with `--deep`");
         println!("  to remove the ones henk itself installed.");
     }
     Ok(())
@@ -112,14 +110,14 @@ fn print_plan(state: &Option<StateManifest>, deep: bool, keep_config: bool) {
         println!();
         println!(
             "  Plus {} (state.json says we installed):",
-            "brew uninstall".bold()
+            package_remove_command().join(" ").bold()
         );
         let pkgs = state
             .as_ref()
             .map(|s| s.brew_packages_we_installed())
             .unwrap_or_default();
         if pkgs.is_empty() {
-            println!("    (none — every brew package was already on the box)");
+            println!("    (none — every package was already on the box)");
         } else {
             for pkg in &pkgs {
                 println!("    · {pkg}");
@@ -190,7 +188,7 @@ async fn remove_resolver_file(runner: &SystemRunner, state: &Option<StateManifes
             // Best-effort fallback when state.json is missing: try the
             // default `.test` location. We still header-check before
             // deleting, so this can't clobber a foreign resolver.
-            Path::new("/etc/resolver/test").to_path_buf()
+            resolver::resolver_path(crate::consts::DEFAULT_TLD)
         });
     let body = std::fs::read_to_string(&path).ok();
     match classify_file_for_delete(&path, body.as_deref()) {
@@ -215,7 +213,7 @@ async fn remove_resolver_file(runner: &SystemRunner, state: &Option<StateManifes
         anyhow::bail!("`sudo rm {}` failed (exit {exit})", path.display());
     }
     println!("    ✓ removed.");
-    Ok(())
+    resolver::restart_resolved(runner).await
 }
 
 async fn remove_dnsmasq_dropin(runner: &SystemRunner, state: &Option<StateManifest>) -> Result<()> {
@@ -268,18 +266,30 @@ async fn uninstall_henk_brew_pkgs(runner: &SystemRunner, state: &StateManifest) 
         return Ok(());
     }
     for pkg in pkgs {
-        println!("  ⤷ brew uninstall {pkg}");
+        let mut command = package_remove_command();
+        command.push(pkg);
+        let shown = command.join(" ");
+        println!("  ⤷ {shown}");
         let exit = runner
-            .run_inherit("brew", ["uninstall", pkg])
+            .run_inherit(command[0], &command[1..])
             .await
-            .with_context(|| format!("running `brew uninstall {pkg}`"))?;
+            .with_context(|| format!("running `{shown}`"))?;
         if exit != 0 {
             // Don't bail — uninstall is best-effort. The user can finish
             // up by hand without losing the rest of the cleanup.
-            println!("    ! `brew uninstall {pkg}` exited {exit}; skipping.");
+            println!("    ! `{shown}` exited {exit}; skipping.");
         }
     }
     Ok(())
+}
+
+/// The command that removes a package henk installed, minus the package.
+fn package_remove_command() -> Vec<&'static str> {
+    if cfg!(target_os = "linux") {
+        vec!["sudo", "pacman", "-R", "--noconfirm"]
+    } else {
+        vec!["brew", "uninstall"]
+    }
 }
 
 #[cfg(test)]

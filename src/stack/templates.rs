@@ -20,6 +20,10 @@ const TRAEFIK_TMPL: &str = include_str!("../../assets/traefik/traefik.yml.tmpl")
 const DYNAMIC_TMPL: &str = include_str!("../../assets/traefik/dynamic.yml.tmpl");
 const ERRORPAGE_NGINX_TMPL: &str = include_str!("../../assets/errorpages/nginx.conf.tmpl");
 const ERRORPAGE_SHELL_TMPL: &str = include_str!("../../assets/errorpages/shell.html.tmpl");
+const LINUX_TRAEFIK_TMPL: &str =
+    include_str!("../../assets/traefik/compose-linux-traefik.yml.tmpl");
+const LINUX_DNSMASQ_TMPL: &str =
+    include_str!("../../assets/traefik/compose-linux-dnsmasq.yml.tmpl");
 
 /// The error pages, each rendered twice: HTML for browsers, plain text for
 /// curl and coding agents. `nginx.conf` picks between them on `Accept`, and
@@ -55,7 +59,29 @@ const ERROR_PAGES: &[ErrorPage] = &[
 
 /// Substitution variables shared across the templates.
 fn vars_from(cfg: &Config) -> BTreeMap<&'static str, String> {
+    vars_for(cfg, cfg!(target_os = "linux"))
+}
+
+/// On Linux the stack also runs dnsmasq (systemd-resolved forwards the TLD to
+/// it), publishes Traefik on loopback only — DNS answers 127.0.0.1, and a
+/// wildcard bind collides with anything holding :443 on one address, such as
+/// `tailscale serve` — and maps `host.docker.internal`, which native Docker
+/// lacks. macOS renders none of it.
+fn vars_for(cfg: &Config, linux: bool) -> BTreeMap<&'static str, String> {
     let mut vars = BTreeMap::new();
+    let (publish_host, traefik_platform, dnsmasq_service) = if linux {
+        (
+            "127.0.0.1:",
+            LINUX_TRAEFIK_TMPL.trim_end(),
+            LINUX_DNSMASQ_TMPL.trim_end(),
+        )
+    } else {
+        ("", "", "")
+    };
+    vars.insert("PUBLISH_HOST", publish_host.to_string());
+    vars.insert("TRAEFIK_PLATFORM", traefik_platform.to_string());
+    vars.insert("DNSMASQ_SERVICE", dnsmasq_service.to_string());
+    vars.insert("DNSMASQ_PORT", cfg.ports.dnsmasq.to_string());
     vars.insert("HENK_FILE_HEADER", HENK_FILE_HEADER.to_string());
     vars.insert("HTTP_PORT", cfg.ports.http.to_string());
     vars.insert("HTTPS_PORT", cfg.ports.https.to_string());
@@ -64,10 +90,20 @@ fn vars_from(cfg: &Config) -> BTreeMap<&'static str, String> {
     vars
 }
 
+/// Substitutes `{{NAME}}`. A variable that renders empty takes its own line
+/// with it, so a placeholder standing alone leaves no blank line behind.
+/// Fragments are substituted before the variables inside them are, so a
+/// fragment may use other variables — hence the two passes.
 fn render(template: &str, vars: &BTreeMap<&'static str, String>) -> String {
     let mut out = template.to_string();
-    for (k, v) in vars {
-        out = out.replace(&format!("{{{{{k}}}}}"), v);
+    for _pass in 0..2 {
+        for (key, value) in vars {
+            let placeholder = format!("{{{{{key}}}}}");
+            if value.is_empty() {
+                out = out.replace(&format!("{placeholder}\n"), "");
+            }
+            out = out.replace(&placeholder, value);
+        }
     }
     out
 }
@@ -159,7 +195,7 @@ mod tests {
 
     #[test]
     fn compose_template_substitutes_ports_and_header() {
-        let rendered = render(COMPOSE_TMPL, &vars_from(&cfg()));
+        let rendered = render(COMPOSE_TMPL, &vars_for(&cfg(), false));
         assert!(rendered.contains("# managed by henk"));
         assert!(rendered.contains("\"80:80\""));
         assert!(rendered.contains("\"443:443\""));
@@ -176,6 +212,45 @@ mod tests {
         assert!(
             !rendered.contains("{{"),
             "no template residue: \n{rendered}"
+        );
+    }
+
+    #[test]
+    fn macos_compose_has_no_linux_pieces() {
+        let rendered = render(COMPOSE_TMPL, &vars_for(&cfg(), false));
+        assert!(!rendered.contains("henk-dnsmasq"));
+        assert!(!rendered.contains("host-gateway"));
+        assert!(!rendered.contains("127.0.0.1:80:80"));
+        assert!(
+            !rendered.contains("\n\n\n"),
+            "empty placeholders leave no gap"
+        );
+    }
+
+    #[test]
+    fn linux_compose_runs_dnsmasq_on_loopback_and_maps_the_host() {
+        let rendered = render(COMPOSE_TMPL, &vars_for(&cfg(), true));
+        assert!(rendered.contains("\"127.0.0.1:80:80\""), "{rendered}");
+        assert!(rendered.contains("\"127.0.0.1:443:443\""));
+        assert!(rendered.contains("\"host.docker.internal:host-gateway\""));
+        assert!(rendered.contains("container_name: henk-dnsmasq"));
+        assert!(rendered.contains("\"127.0.0.1:35353:53/udp\""));
+        assert!(rendered.contains("\"127.0.0.1:35353:53/tcp\""));
+        assert!(rendered.contains("--address=/.test/127.0.0.1"));
+        assert!(
+            rendered.contains("--no-resolv"),
+            "forwarding would loop through resolved"
+        );
+        assert!(!rendered.contains("{{"), "no template residue:\n{rendered}");
+        let parsed: serde_yaml_ng::Value = serde_yaml_ng::from_str(&rendered).expect("valid YAML");
+        let services = &parsed["services"];
+        assert_eq!(
+            services["traefik"]["extra_hosts"][0].as_str(),
+            Some("host.docker.internal:host-gateway")
+        );
+        assert_eq!(
+            services["dnsmasq"]["networks"][0].as_str(),
+            Some("henk-proxy")
         );
     }
 

@@ -2,12 +2,12 @@
 name = "henk"
 version = "0.2.1"
 edition = "2024"
-description = "Local-dev URL routing for Docker on macOS — Valet/Herd ergonomics for any container."
+description = "Local-dev URL routing for Docker on macOS and Linux — Valet/Herd ergonomics for any container."
 license = "MIT"
 repository = "https://github.com/fivespark/henk"
 homepage = "https://github.com/fivespark/henk"
 readme = "README.md"
-keywords = ["docker", "traefik", "macos", "developer-tools", "local-dev"]
+keywords = ["docker", "traefik", "macos", "linux", "local-dev"]
 categories = ["command-line-utilities", "development-tools"]
 
 [[bin]]

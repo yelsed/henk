@@ -12,6 +12,7 @@ pub mod backend;
 mod brew;
 mod coexistence;
 mod docker;
+pub mod linux;
 pub mod ports;
 mod resolver;
 mod tld;
@@ -109,10 +110,18 @@ pub async fn run_all(runner: &SystemRunner, tld_override: Option<&str>) -> Resul
 
     // Prerequisites.
     items.push(docker::probe(runner).await);
-    items.push(brew::probe_homebrew(runner).await);
-    items.push(brew::probe_mkcert(runner).await);
-    items.push(brew::probe_nss(runner).await);
-    items.push(brew::probe_dnsmasq(runner).await);
+    if cfg!(target_os = "linux") {
+        // dnsmasq runs in the stack on Linux, so there's no host package for it.
+        items.push(linux::probe_pacman(runner).await);
+        items.push(linux::probe_mkcert(runner).await);
+        items.push(linux::probe_nss(runner).await);
+        items.push(linux::probe_resolved(runner).await);
+    } else {
+        items.push(brew::probe_homebrew(runner).await);
+        items.push(brew::probe_mkcert(runner).await);
+        items.push(brew::probe_nss(runner).await);
+        items.push(brew::probe_dnsmasq(runner).await);
+    }
 
     // Coexistence with other dev tools.
     let valet_present = coexistence::valet_detected(runner).await;

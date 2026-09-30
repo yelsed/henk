@@ -60,8 +60,9 @@ fn record_stack_version() -> Result<()> {
 ///
 /// 1. Ensure mkcert's local CA is installed in the system keychain.
 /// 2. Generate the wildcard certificate for `*.<tld>`.
-/// 3. Write `/etc/resolver/<tld>` with sudo (idempotent — skipped if the
-///    correct contents are already in place under our header).
+/// 3. Write `/etc/resolver/<tld>` (Linux: the systemd-resolved drop-in) with
+///    sudo (idempotent — skipped if the correct contents are already in place
+///    under our header).
 /// 4. Hand off to `up`, which renders the templates, migrates any project
 ///    routing that predates them, starts the stack, and records the applied
 ///    `STACK_VERSION`.
@@ -83,14 +84,17 @@ pub async fn init_full(runner: &SystemRunner, cfg: &Config) -> Result<()> {
     let dashboard_san = format!("traefik.{tld}", tld = cfg.tld);
     certs::ensure_wildcard(runner, &cfg.tld, &[dashboard_san], false).await?;
 
-    println!("⤷ ensuring Homebrew dnsmasq is installed and running ...");
-    dnsmasq::ensure(runner, &cfg.tld).await?;
+    // On Linux dnsmasq is a container in the stack `up` starts.
+    if !cfg!(target_os = "linux") {
+        println!("⤷ ensuring Homebrew dnsmasq is installed and running ...");
+        dnsmasq::ensure(runner, &cfg.tld).await?;
+    }
 
     println!(
-        "⤷ writing /etc/resolver/{tld} (sudo prompt incoming if not cached) ...",
-        tld = cfg.tld
+        "⤷ writing {} (sudo prompt incoming if not cached) ...",
+        resolver::resolver_path(&cfg.tld).display()
     );
-    resolver::ensure_written(runner, &cfg.tld).await?;
+    resolver::ensure_written(runner, &cfg.tld, cfg.ports.dnsmasq).await?;
 
     println!("⤷ rendering stack templates and starting the global stack ...");
     up(runner, cfg).await
@@ -138,6 +142,9 @@ async fn require_docker(runner: &SystemRunner) -> Result<()> {
         .await;
     match out {
         Ok(o) if o.ok() => Ok(()),
+        _ if cfg!(target_os = "linux") => {
+            bail!("Docker is not running. Start it (`sudo systemctl start docker`) and try again.")
+        }
         _ => bail!("Docker is not running. Start Docker Desktop and try again."),
     }
 }
@@ -174,7 +181,7 @@ async fn require_ports_free(runner: &SystemRunner, cfg: &Config) -> Result<()> {
         return Ok(());
     }
     let mut msg = String::from(
-        "cannot bind required ports — Traefik would silently lose these bindings under Docker Desktop:\n",
+        "cannot bind required ports — Traefik would lose these bindings (Docker Desktop drops them silently):\n",
     );
     for b in blockers {
         msg.push_str(&format!("  · {}\n", b.detail));

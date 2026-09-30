@@ -15,13 +15,13 @@ What `henk uninstall` (default) does:
 - Stops and removes the global Traefik + dnsmasq containers.
 - Removes the `henk-proxy` Docker network.
 - Removes the wildcard cert files in `~/.config/henk/traefik/certs/`.
-- Removes `/etc/resolver/<tld>` **only if** it carries the `# managed by henk` header (sudo prompt).
+- Removes `/etc/resolver/<tld>` (Linux: `/etc/systemd/resolved.conf.d/henk-<tld>.conf`, then restarts systemd-resolved) **only if** it carries the `# managed by henk` header (sudo prompt).
 - Removes `~/.config/henk/` and `~/.local/share/henk/`.
 
 What it explicitly **does not** do unless you pass `--deep`:
 
 - `mkcert -uninstall` (other tools may rely on the root CA in your keychain).
-- `brew uninstall mkcert nss` — even with `--deep`, only removes packages whose `state.json` entry shows `installed_by: henk`. Foreign-installed packages survive.
+- `brew uninstall mkcert nss` (Linux: `sudo pacman -R`) — even with `--deep`, only removes packages whose `state.json` entry shows `installed_by: henk`. Foreign-installed packages survive.
 
 Per-project reversal (`henk unlink`, run inside a linked project) removes the routing entry, deletes the override file *only if it's ours*, and deletes `.henk.toml`. It does **not** revert `.env` changes (e.g. `APP_PORT=8080`) — you own those edits.
 

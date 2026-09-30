@@ -10,7 +10,11 @@ pub async fn probe(runner: &SystemRunner) -> DetectionItem {
         return DetectionItem {
             name: "Docker",
             status: Status::Block,
-            detail: "not found in $PATH (install Docker Desktop)".into(),
+            detail: if cfg!(target_os = "linux") {
+                "not found in $PATH (install Docker Engine)".into()
+            } else {
+                "not found in $PATH (install Docker Desktop)".into()
+            },
         };
     }
     match runner
@@ -28,7 +32,13 @@ pub async fn probe(runner: &SystemRunner) -> DetectionItem {
         Ok(_) => DetectionItem {
             name: "Docker",
             status: Status::Block,
-            detail: "installed but daemon not reachable (start Docker Desktop)".into(),
+            detail: if cfg!(target_os = "linux") {
+                "installed but daemon not reachable (`sudo systemctl start docker`, \
+                 and be in the `docker` group)"
+                    .into()
+            } else {
+                "installed but daemon not reachable (start Docker Desktop)".into()
+            },
         },
         Err(_) => DetectionItem {
             name: "Docker",

@@ -1,0 +1,4 @@
+    # Native Docker on Linux has no built-in `host.docker.internal`; map it to
+    # the host so host-mode routes (native dev servers) reach it.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

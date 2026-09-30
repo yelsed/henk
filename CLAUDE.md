@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What `henk` is
 
-A macOS CLI (Rust, edition 2024) that gives Docker containers Laravel-Valet-style trusted HTTPS URLs (`https://myapp.test`) with no `/etc/hosts` edits and no hand-written nginx. It manages a global Traefik + dnsmasq stack (running in Docker), wires up macOS DNS via `/etc/resolver/<tld>`, and mints trusted wildcard certs via `mkcert`. Coexists with Valet/Herd/DDEV/Lando — when `.test` is already owned it falls back to `.henk`.
+A macOS and Linux CLI (Rust, edition 2024) that gives Docker containers Laravel-Valet-style trusted HTTPS URLs (`https://myapp.test`) with no `/etc/hosts` edits and no hand-written nginx. It manages a global Traefik + dnsmasq stack (running in Docker), wires up macOS DNS via `/etc/resolver/<tld>`, and mints trusted wildcard certs via `mkcert`. Coexists with Valet/Herd/DDEV/Lando — when `.test` is already owned it falls back to `.henk`. On Linux the resolver is a systemd-resolved drop-in and dnsmasq runs in the stack; see `docs/architecture.md#linux`.
 
 ## Commands
 
@@ -28,7 +28,7 @@ cargo test --test cli                                 # integration tests only (
 cargo test some_test -- --nocapture --test-threads=1  # with output, serialized
 ```
 
-CI (`.github/workflows/ci.yml`) runs `check`, `test`, `clippy -D warnings`, `fmt --check` on `macos-latest`. Release (`.github/workflows/release.yml`, config in `dist-workspace.toml`) is `cargo-dist`-driven, triggered by a `v[0-9]+.[0-9]+.[0-9]+` tag; builds `aarch64-apple-darwin` + `x86_64-apple-darwin`, ships a shell installer, no crates.io publish. Self-update at runtime via `henk update` (uses `axoupdater`).
+CI (`.github/workflows/ci.yml`) runs `check`, `test`, `clippy -D warnings` on `macos-latest` and `ubuntu-latest`, and `fmt --check`. Release (`.github/workflows/release.yml`, config in `dist-workspace.toml`) is `cargo-dist`-driven, triggered by a `v[0-9]+.[0-9]+.[0-9]+` tag; builds `aarch64-apple-darwin` + `x86_64-apple-darwin` + `x86_64-unknown-linux-gnu` + `aarch64-unknown-linux-gnu`, ships a shell installer, no crates.io publish. Self-update at runtime via `henk update` (uses `axoupdater`).
 
 ## Architecture
 

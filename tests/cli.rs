@@ -61,8 +61,13 @@ fn init_dry_run_renders_detection_table() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("environment detection"));
     assert!(stdout.contains("Docker"));
-    assert!(stdout.contains("Homebrew"));
-    assert!(stdout.contains("/etc/resolver/<tld>"));
+    if cfg!(target_os = "linux") {
+        assert!(stdout.contains("systemd-resolved"));
+        assert!(stdout.contains("resolved drop-in"));
+    } else {
+        assert!(stdout.contains("Homebrew"));
+        assert!(stdout.contains("/etc/resolver/<tld>"));
+    }
     assert!(stdout.contains("TLD:"));
 }
 

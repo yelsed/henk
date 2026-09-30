@@ -6,7 +6,7 @@
 //!
 //! 1. Detection report (read-only probe of the host).
 //! 2. Plan summary — every action grouped, with privileged steps flagged.
-//! 3. Per-package install consent for missing Homebrew packages.
+//! 3. Per-package install consent for missing Homebrew (Linux: pacman) packages.
 //! 4. Pre-flight sudo (one password, primes credentials for the rest).
 //! 5. Execute (no more prompts past this line).
 //! 6. Smoke-test summary so the user can immediately tell whether it worked.
@@ -23,8 +23,8 @@ use crate::config::Config;
 use crate::detect::{self, DetectionReport, Status, TldReason};
 use crate::manifest::{InstalledBy, StateManifest, steps};
 use crate::runner::SystemRunner;
-use crate::stack::lifecycle;
 use crate::stack::paths;
+use crate::stack::{lifecycle, resolver};
 
 pub async fn run(dry_run: bool, tld: Option<String>, yes: bool) -> Result<()> {
     let runner = SystemRunner::new();
@@ -101,12 +101,14 @@ async fn execute_init(
     let cert_path = paths::traefik_dir()
         .ok()
         .map(|p| p.join("certs").join(format!("_wildcard.{}.pem", cfg.tld)));
-    let resolver_path = std::path::PathBuf::from(format!("/etc/resolver/{}", cfg.tld));
-    let dropin_path = brew_dnsmasq_dropin_path(runner, &cfg.tld).await;
+    let resolver_path = resolver::resolver_path(&cfg.tld);
 
     state.mark_step_complete(steps::MKCERT_CA, None, None);
     state.mark_step_complete(steps::WILDCARD_CERT, cert_path, None);
-    state.mark_step_complete(steps::DNSMASQ_DROPIN, dropin_path, None);
+    if !cfg!(target_os = "linux") {
+        let dropin_path = brew_dnsmasq_dropin_path(runner, &cfg.tld).await;
+        state.mark_step_complete(steps::DNSMASQ_DROPIN, dropin_path, None);
+    }
     state.mark_step_complete(steps::RESOLVER_FILE, Some(resolver_path), None);
     state.mark_step_complete(steps::STACK_RENDERED, None, None);
     state.mark_step_complete(steps::STACK_UP, None, None);
@@ -141,7 +143,7 @@ fn print_wizard_header() {
     );
     println!(
         "{}",
-        "│ Local-dev URLs over HTTPS for Docker on macOS.       │".bright_blue()
+        "│ Local-dev URLs over HTTPS for your containers.       │".bright_blue()
     );
     println!(
         "{}",
@@ -161,46 +163,75 @@ fn print_plan(report: &DetectionReport, cfg: &Config) {
     print_section("Plan");
     println!();
 
+    let linux = cfg!(target_os = "linux");
     let missing = missing_brew_pkgs(report);
     if !missing.is_empty() {
+        if linux {
+            println!(
+                "  {} {} install pacman packages: {}",
+                "○".bright_black(),
+                "[sudo]".yellow(),
+                missing.join(", ")
+            );
+        } else {
+            println!(
+                "  {} install Homebrew packages: {}",
+                "○".bright_black(),
+                missing.join(", ")
+            );
+        }
+    }
+    if linux {
         println!(
-            "  {} install Homebrew packages: {}",
+            "  {} {} install mkcert local CA in the system trust store and your browsers' NSS databases",
             "○".bright_black(),
-            missing.join(", ")
+            "[sudo]".yellow()
+        );
+    } else {
+        println!(
+            "  {} install mkcert local CA in your system keychain",
+            "○".bright_black()
         );
     }
-    println!(
-        "  {} install mkcert local CA in your system keychain",
-        "○".bright_black()
-    );
     println!(
         "  {} issue wildcard cert for *.{tld} (and {tld})",
         "○".bright_black(),
         tld = cfg.tld
     );
-    println!(
-        "  {} write Homebrew dnsmasq drop-in for .{tld}",
-        "○".bright_black(),
-        tld = cfg.tld
-    );
-    println!(
-        "  {} {} restart dnsmasq via launchd (binds privileged :53)",
-        "○".bright_black(),
-        "[sudo]".yellow()
-    );
-    println!(
-        "  {} {} write /etc/resolver/{tld} so *.{tld} resolves locally",
-        "○".bright_black(),
-        "[sudo]".yellow(),
-        tld = cfg.tld
-    );
+    if linux {
+        println!(
+            "  {} {} write {} and restart systemd-resolved so *.{tld} resolves locally",
+            "○".bright_black(),
+            "[sudo]".yellow(),
+            resolver::resolver_path(&cfg.tld).display(),
+            tld = cfg.tld
+        );
+    } else {
+        println!(
+            "  {} write Homebrew dnsmasq drop-in for .{tld}",
+            "○".bright_black(),
+            tld = cfg.tld
+        );
+        println!(
+            "  {} {} restart dnsmasq via launchd (binds privileged :53)",
+            "○".bright_black(),
+            "[sudo]".yellow()
+        );
+        println!(
+            "  {} {} write /etc/resolver/{tld} so *.{tld} resolves locally",
+            "○".bright_black(),
+            "[sudo]".yellow(),
+            tld = cfg.tld
+        );
+    }
     println!(
         "  {} render the global Traefik stack to ~/.config/henk/traefik/",
         "○".bright_black()
     );
     println!(
-        "  {} `docker compose up -d` for the global stack",
-        "○".bright_black()
+        "  {} `docker compose up -d` for the global stack{}",
+        "○".bright_black(),
+        if linux { " (Traefik + dnsmasq)" } else { "" }
     );
     println!();
     println!(
@@ -223,6 +254,22 @@ fn print_plan(report: &DetectionReport, cfg: &Config) {
 fn explain_sudo_usage(cfg: &Config) {
     use owo_colors::OwoColorize;
     println!();
+    if cfg!(target_os = "linux") {
+        println!("  henk needs sudo for two things:");
+        println!(
+            "    1. {}: trust its CA in the system store (/etc/ca-certificates).",
+            "mkcert -install".italic()
+        );
+        println!(
+            "    2. {}: write {} and restart systemd-resolved so `*.{tld}` resolves.",
+            "resolved".italic(),
+            resolver::resolver_path(&cfg.tld).display(),
+            tld = cfg.tld
+        );
+        println!("  No other privileged operations happen during init.");
+        println!();
+        return;
+    }
     println!("  henk needs sudo for two things:");
     println!(
         "    1. {}: dnsmasq launchd plist binds :53 (privileged port).",
@@ -260,23 +307,34 @@ async fn install_missing_brew_packages(
         return Ok(());
     }
 
-    print_section("Homebrew packages");
+    let linux = cfg!(target_os = "linux");
+    print_section(if linux {
+        "pacman packages"
+    } else {
+        "Homebrew packages"
+    });
     for pkg in missing {
-        let prompt = format!("Install `{pkg}` via Homebrew now?");
+        let (program, args): (&str, Vec<&str>) = if linux {
+            ("sudo", vec!["pacman", "-S", "--needed", "--noconfirm", pkg])
+        } else {
+            ("brew", vec!["install", pkg])
+        };
+        let command = format!("{program} {}", args.join(" "));
+        let prompt = format!("Run `{command}` now?");
         if !auto_yes && !confirm(&prompt, true)? {
             bail!("`{pkg}` is required; aborting.");
         }
-        println!("  ⤷ brew install {pkg} ...");
+        println!("  ⤷ {command} ...");
         let exit = runner
-            .run_inherit("brew", ["install", pkg])
+            .run_inherit(program, &args)
             .await
-            .with_context(|| format!("running `brew install {pkg}`"))?;
-        state.audit(format!("brew install {pkg}"), exit);
+            .with_context(|| format!("running `{command}`"))?;
+        state.audit(command.clone(), exit);
         if exit != 0 {
             let key = brew_step_key(pkg);
-            state.mark_step_failed(key, format!("brew install {pkg} exit {exit}"));
+            state.mark_step_failed(key, format!("{command} exit {exit}"));
             state.save().ok();
-            bail!("`brew install {pkg}` failed with exit code {exit}");
+            bail!("`{command}` failed with exit code {exit}");
         }
         let key = brew_step_key(pkg);
         state.mark_step_complete(key, None, Some(InstalledBy::Henk));
@@ -340,12 +398,17 @@ async fn maybe_already_initialized(runner: &SystemRunner, cfg: &Config) -> Optio
         .ok()?
         .join("certs")
         .join(format!("_wildcard.{}.pem", cfg.tld));
-    let resolver = Path::new("/etc/resolver").join(&cfg.tld);
-    let dnsmasq_drop_in = brew_dnsmasq_dropin_path(runner, &cfg.tld).await?;
+    let resolver = resolver::resolver_path(&cfg.tld);
+    // Linux runs dnsmasq in the stack, so there's no host drop-in to check.
+    let dnsmasq_drop_in = if cfg!(target_os = "linux") {
+        None
+    } else {
+        Some(brew_dnsmasq_dropin_path(runner, &cfg.tld).await?)
+    };
 
     let cert_ok = cert.exists();
     let resolver_ok = resolver.exists();
-    let dropin_ok = dnsmasq_drop_in.exists();
+    let dropin_ok = dnsmasq_drop_in.as_deref().is_none_or(Path::exists);
 
     if !(cert_ok && resolver_ok && dropin_ok) {
         return None;
@@ -355,11 +418,9 @@ async fn maybe_already_initialized(runner: &SystemRunner, cfg: &Config) -> Optio
     print_section("Already initialised");
     println!("  {}  cert         {}", "✓".green(), cert.display());
     println!("  {}  resolver     {}", "✓".green(), resolver.display());
-    println!(
-        "  {}  dnsmasq      {}",
-        "✓".green(),
-        dnsmasq_drop_in.display()
-    );
+    if let Some(drop_in) = &dnsmasq_drop_in {
+        println!("  {}  dnsmasq      {}", "✓".green(), drop_in.display());
+    }
     println!();
 
     // Backfill state.json on first re-run after M7 lands. Pre-M7 installs
@@ -368,7 +429,7 @@ async fn maybe_already_initialized(runner: &SystemRunner, cfg: &Config) -> Optio
     // complete and brew packages `Preexisting` — the safe default
     // means `uninstall --deep` will skip them, never accidentally
     // removing a tool that was on the box before henk arrived.
-    if let Err(e) = backfill_state(cfg, &cert, &resolver, &dnsmasq_drop_in) {
+    if let Err(e) = backfill_state(cfg, &cert, &resolver, dnsmasq_drop_in.as_deref()) {
         eprintln!("  ! could not backfill state.json: {e}");
     }
     println!("  Re-running init would only re-render templates and bring the stack up.");
@@ -388,7 +449,12 @@ async fn maybe_already_initialized(runner: &SystemRunner, cfg: &Config) -> Optio
 /// Build a `state.json` for an already-up host that predates state
 /// tracking. Idempotent: re-running on a host with state.json is a
 /// no-op.
-fn backfill_state(cfg: &Config, cert: &Path, resolver: &Path, dnsmasq_dropin: &Path) -> Result<()> {
+fn backfill_state(
+    cfg: &Config,
+    cert: &Path,
+    resolver: &Path,
+    dnsmasq_dropin: Option<&Path>,
+) -> Result<()> {
     if StateManifest::is_present() {
         return Ok(());
     }
@@ -397,14 +463,16 @@ fn backfill_state(cfg: &Config, cert: &Path, resolver: &Path, dnsmasq_dropin: &P
 
     state.mark_step_complete(steps::BREW_MKCERT, None, Some(InstalledBy::Preexisting));
     state.mark_step_complete(steps::BREW_NSS, None, Some(InstalledBy::Preexisting));
-    state.mark_step_complete(steps::BREW_DNSMASQ, None, Some(InstalledBy::Preexisting));
     state.mark_step_complete(steps::MKCERT_CA, None, None);
     state.mark_step_complete(steps::WILDCARD_CERT, Some(cert.to_path_buf()), None);
-    state.mark_step_complete(
-        steps::DNSMASQ_DROPIN,
-        Some(dnsmasq_dropin.to_path_buf()),
-        None,
-    );
+    if let Some(dnsmasq_dropin) = dnsmasq_dropin {
+        state.mark_step_complete(steps::BREW_DNSMASQ, None, Some(InstalledBy::Preexisting));
+        state.mark_step_complete(
+            steps::DNSMASQ_DROPIN,
+            Some(dnsmasq_dropin.to_path_buf()),
+            None,
+        );
+    }
     state.mark_step_complete(steps::RESOLVER_FILE, Some(resolver.to_path_buf()), None);
     state.mark_step_complete(steps::STACK_RENDERED, None, None);
     state.mark_step_complete(steps::STACK_UP, None, None);

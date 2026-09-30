@@ -50,6 +50,8 @@ pub async fn run(
         }
     }
 
+    apply_port_override(&mut detection, port_override);
+
     let mut manifest = ProjectManifest::load(project_dir)?
         .unwrap_or_else(|| ProjectManifest::new(slug.clone(), detection.mode));
 
@@ -204,6 +206,14 @@ fn derive_slug(project_dir: &Path) -> Result<String> {
         .and_then(|n| n.to_str())
         .context("could not derive slug from project directory name")?;
     Ok(name.to_ascii_lowercase().replace(['_', ' ', '.'], "-"))
+}
+
+/// `--port` wins over detection in every mode, not only next to `--service`:
+/// a native dev server has no service, and its port is all there is to say.
+fn apply_port_override(detection: &mut ProjectDetection, port_override: Option<u16>) {
+    if let Some(port) = port_override {
+        detection.web_port = Some(port);
+    }
 }
 
 fn build_host_entry(detection: &ProjectDetection, host: &str) -> Result<HostEntry> {
@@ -583,6 +593,15 @@ fn print_host_mode_hint(port: u16) {
     println!("  Or set the bind address in your framework's config so");
     println!("  `npm run dev` does the right thing without flags.");
     println!();
+    if cfg!(target_os = "linux") {
+        println!("  On Linux the request arrives from a Docker bridge, so a firewall");
+        println!("  must let it in too. With ufw:");
+        println!();
+        println!("    sudo ufw allow in from 172.16.0.0/12 to any port {port} proto tcp");
+        println!();
+        println!("  `henk doctor` checks this from inside the proxy container.");
+        println!();
+    }
 }
 
 fn print_summary(manifest: &ProjectManifest, project_dir: &Path) {
@@ -599,4 +618,43 @@ fn print_summary(manifest: &ProjectManifest, project_dir: &Path) {
     println!(
         "Next: bring up your project (e.g. `npm run dev`, `sail up`, `docker compose up -d`)."
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn host_mode_detection() -> ProjectDetection {
+        ProjectDetection {
+            mode: ProjectMode::Host,
+            web_service: None,
+            web_port: None,
+            default_host: "app.test".into(),
+            candidates: vec![],
+            port_collision: None,
+            vite_detected: false,
+        }
+    }
+
+    #[test]
+    fn a_port_given_for_a_native_dev_server_is_the_target() {
+        let mut detection = host_mode_detection();
+        apply_port_override(&mut detection, Some(4870));
+        let entry = build_host_entry(&detection, "app.test").unwrap();
+        assert_eq!(
+            entry.target.as_deref(),
+            Some("http://host.docker.internal:4870")
+        );
+    }
+
+    #[test]
+    fn without_a_port_a_native_dev_server_keeps_the_default() {
+        let mut detection = host_mode_detection();
+        apply_port_override(&mut detection, None);
+        let entry = build_host_entry(&detection, "app.test").unwrap();
+        assert_eq!(
+            entry.target.as_deref(),
+            Some("http://host.docker.internal:3000")
+        );
+    }
 }

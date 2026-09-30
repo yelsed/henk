@@ -68,6 +68,10 @@ pub struct Observation {
     pub with_host: Option<u16>,
     /// Something is listening, but only on the IPv6 loopback.
     pub ipv6_only_listener: bool,
+    /// Linux: the port answers on the host's loopback, yet the Traefik
+    /// container can't open a connection to it — bound to 127.0.0.1, or a
+    /// firewall drops traffic from Docker's bridges.
+    pub proxy_unreachable: bool,
 }
 
 /// Probe every linked host and report what's wrong. Hosts whose backend
@@ -106,10 +110,37 @@ async fn observe(runner: &SystemRunner, port: u16, host: &str) -> Observation {
     };
     let ipv6_only_listener =
         matches!(plain, PortResponse::Refused) && ipv6_only(runner, port).await;
+    // On macOS, Docker Desktop forwards host.docker.internal to the host's own
+    // loopback, so the probe above is what Traefik sees. Native Docker on Linux
+    // comes in over a bridge instead, so ask from where Traefik actually sits.
+    let proxy_unreachable = cfg!(target_os = "linux")
+        && matches!(plain, PortResponse::Code(_))
+        && proxy_cannot_connect(runner, port).await;
     Observation {
         plain,
         with_host,
         ipv6_only_listener,
+        proxy_unreachable,
+    }
+}
+
+/// True only when `nc` ran inside the Traefik container and couldn't connect;
+/// a stopped container or missing Docker is not a verdict on the port.
+async fn proxy_cannot_connect(runner: &SystemRunner, port: u16) -> bool {
+    let port = port.to_string();
+    let args = [
+        "exec",
+        "henk-traefik",
+        "nc",
+        "-z",
+        "-w",
+        "2",
+        "host.docker.internal",
+        &port,
+    ];
+    match runner.run("docker", args).await {
+        Ok(out) => !out.ok() && !out.stderr.contains("Error response from daemon"),
+        Err(_) => false,
     }
 }
 
@@ -136,6 +167,14 @@ pub fn classify(port: u16, host: &str, obs: Observation) -> (Status, String) {
             format!(
                 "port {port} only answers WebSocket upgrades — that's the HMR socket, not the \
                  app. The app is bound to the IPv6 loopback; restart the dev server on 0.0.0.0"
+            ),
+        ),
+        PortResponse::Code(_) if obs.proxy_unreachable => (
+            Status::Block,
+            format!(
+                "port {port} answers on 127.0.0.1 but not from Traefik's container. Bind the dev \
+                 server to 0.0.0.0, and if a firewall runs, let Docker in: \
+                 `sudo ufw allow in from 172.16.0.0/12 to any port {port} proto tcp`"
             ),
         ),
         PortResponse::Code(_) if obs.with_host == Some(403) => (
@@ -324,7 +363,20 @@ mod tests {
             plain,
             with_host,
             ipv6_only_listener,
+            proxy_unreachable: false,
         }
+    }
+
+    #[test]
+    fn alive_on_loopback_but_not_from_the_proxy_names_bind_and_firewall() {
+        let observation = Observation {
+            proxy_unreachable: true,
+            ..obs(PortResponse::Code(200), Some(200), false)
+        };
+        let (status, detail) = classify(3000, "app.test", observation);
+        assert_eq!(status, Status::Block);
+        assert!(detail.contains("0.0.0.0"));
+        assert!(detail.contains("ufw allow in from 172.16.0.0/12 to any port 3000"));
     }
 
     #[test]
